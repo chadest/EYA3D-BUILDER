@@ -80,6 +80,25 @@ class EditorStore {
   public showShadows: boolean = true;
   public flatShading: boolean = false;
 
+  // Interactive Primitive Drawing State
+  public isInteractiveDrawingMode: boolean = false;
+  public isPrimitivePopupOpen: boolean = false;
+  public drawingPrimitiveType: 'plane' | 'cube' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'pyramid' | 'star3d' = 'cube';
+  public drawingSnapEnabled: boolean = true;
+  public drawingSnapStep: number = 0.5;
+  public drawingStep: 'IDLE' | 'DRAWING_BASE' | 'EXTRUDING_HEIGHT' | 'COMPLETED' = 'IDLE';
+  public onCancelDrawingCallback: (() => void) | null = null;
+
+  public cancelInteractiveDrawing(): void {
+    if (this.onCancelDrawingCallback) {
+      this.onCancelDrawingCallback();
+    } else {
+      this.drawingStep = 'IDLE';
+      this.isInteractiveDrawingMode = false;
+      this.notify();
+    }
+  }
+
   // Undo/Redo Stacks
   private historyStack: string[] = [];
   private historyIndex: number = -1;

@@ -17,6 +17,14 @@ import {
 } from '../../core/splines/splineTool';
 import { buildLatticeCageWireframe } from '../../core/deformation/lattice';
 import { LatticeModifierConfig } from '../../types/editor';
+import {
+  InteractivePrimitiveType,
+  DrawingStep,
+  snapValue,
+  snapVector3,
+  generatePrimitiveGeometry,
+} from '../../core/primitives/interactivePrimitives';
+import { InteractivePrimitivePopup } from '../ui/InteractivePrimitivePopup';
 
 // 1. Interactive 3D Coordinate Axis Orientation Gizmo (Matching User Screenshot)
 interface ViewOrientationGizmoProps {
@@ -182,11 +190,154 @@ export const Viewport3D: React.FC = () => {
   const isShiftPressedRef = useRef<boolean>(false);
   const lastHitPointRef = useRef<THREE.Vector3 | null>(null);
 
+  // Interactive Primitive Drawing References
+  const previewMeshRef = useRef<THREE.Mesh | null>(null);
+  const drawingDataRef = useRef<{
+    anchorPoint: THREE.Vector3;
+    surfaceNormal: THREE.Vector3;
+    alignQuaternion: THREE.Quaternion;
+    constructionPlane: THREE.Plane;
+    baseWidth: number;
+    baseDepth: number;
+    baseRadius: number;
+    height: number;
+    minorRadius: number;
+    starPoints: number;
+    startClientY: number;
+  } | null>(null);
+
+  const handleCancelDrawing = () => {
+    if (previewMeshRef.current && sceneRef.current) {
+      sceneRef.current.remove(previewMeshRef.current);
+      previewMeshRef.current.geometry.dispose();
+      if (Array.isArray(previewMeshRef.current.material)) {
+        previewMeshRef.current.material.forEach(m => m.dispose());
+      } else {
+        previewMeshRef.current.material.dispose();
+      }
+      previewMeshRef.current = null;
+    }
+    drawingDataRef.current = null;
+    editorStore.drawingStep = 'IDLE';
+    editorStore.isInteractiveDrawingMode = false;
+    editorStore.notify();
+    if (controlsRef.current) controlsRef.current.enabled = true;
+  };
+
+  useEffect(() => {
+    editorStore.onCancelDrawingCallback = handleCancelDrawing;
+    return () => {
+      editorStore.onCancelDrawingCallback = null;
+    };
+  }, []);
+
+  const getRayIntersectionOnSceneOrGrid = (mouse: THREE.Vector2) => {
+    if (!cameraRef.current || !sceneRef.current) return null;
+
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(mouse, cameraRef.current);
+
+    const validMeshes = editorStore.objects
+      .map(o => o.mesh)
+      .filter((m): m is THREE.Mesh => Boolean(m && m !== previewMeshRef.current));
+
+    const intersects = raycaster.intersectObjects(validMeshes);
+
+    if (intersects.length > 0) {
+      const hit = intersects[0];
+      const point = hit.point.clone();
+      let normal = new THREE.Vector3(0, 1, 0);
+
+      if (hit.face) {
+        normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize();
+      }
+
+      return { point, normal, hitObject: hit.object };
+    }
+
+    const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const groundPoint = new THREE.Vector3();
+    const hitGround = raycaster.ray.intersectPlane(groundPlane, groundPoint);
+
+    if (hitGround) {
+      return { point: groundPoint, normal: new THREE.Vector3(0, 1, 0), hitObject: null };
+    }
+
+    return null;
+  };
+
+  const handleAddDirectPrimitive = (type: InteractivePrimitiveType) => {
+    const geom = generatePrimitiveGeometry(type, {
+      baseWidth: 1,
+      baseDepth: 1,
+      baseRadius: 0.8,
+      height: 1,
+      minorRadius: 0.25,
+      starPoints: 5,
+    });
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x4a90e2,
+      roughness: 0.3,
+      metalness: 0.1,
+      flatShading: editorStore.flatShading,
+    });
+    const mesh = new THREE.Mesh(geom, mat);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.position.set(0, type === 'plane' ? 0.01 : 0.5, 0);
+
+    editorStore.addObject(`Primitive_${type}`, mesh);
+  };
+
+  const finalizeInteractivePrimitive = () => {
+    if (!previewMeshRef.current || !drawingDataRef.current) return;
+
+    const type = editorStore.drawingPrimitiveType;
+    const data = drawingDataRef.current;
+
+    const finalGeom = generatePrimitiveGeometry(type, data);
+    const finalMat = new THREE.MeshStandardMaterial({
+      color: 0x4a90e2,
+      roughness: 0.3,
+      metalness: 0.1,
+      flatShading: editorStore.flatShading,
+    });
+
+    const mesh = new THREE.Mesh(finalGeom, finalMat);
+    mesh.quaternion.copy(data.alignQuaternion);
+    mesh.position.copy(data.anchorPoint);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+
+    editorStore.addObject(`Interactive_${type}`, mesh);
+
+    if (sceneRef.current) sceneRef.current.remove(previewMeshRef.current);
+    previewMeshRef.current.geometry.dispose();
+    if (Array.isArray(previewMeshRef.current.material)) {
+      previewMeshRef.current.material.forEach(m => m.dispose());
+    } else {
+      previewMeshRef.current.material.dispose();
+    }
+
+    previewMeshRef.current = null;
+    drawingDataRef.current = null;
+
+    // Main levée: Relever le mode de dessin après la création pour réactiver la navigation libre
+    editorStore.drawingStep = 'IDLE';
+    editorStore.isInteractiveDrawingMode = false;
+    editorStore.notify();
+
+    if (controlsRef.current) controlsRef.current.enabled = true;
+  };
+
   useEffect(() => {
     // Keyboard Shortcuts for Undo/Redo and Shift Invert
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Shift') {
         isShiftPressedRef.current = true;
+      }
+      if (e.key === 'Escape') {
+        handleCancelDrawing();
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
@@ -400,6 +551,71 @@ export const Viewport3D: React.FC = () => {
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!containerRef.current || !sceneRef.current || !cameraRef.current) return;
 
+    // --- Interactive Primitive Drawing Real-time Updates ---
+    if (
+      editorStore.isInteractiveDrawingMode &&
+      previewMeshRef.current &&
+      drawingDataRef.current
+    ) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const mouse = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1
+      );
+
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(mouse, cameraRef.current);
+
+      const data = drawingDataRef.current;
+      const type = editorStore.drawingPrimitiveType;
+
+      if (editorStore.drawingStep === 'DRAWING_BASE') {
+        const intersectionPoint = new THREE.Vector3();
+        if (raycaster.ray.intersectPlane(data.constructionPlane, intersectionPoint)) {
+          const disp = intersectionPoint.clone().sub(data.anchorPoint);
+          const localDisp = disp.clone().applyQuaternion(data.alignQuaternion.clone().invert());
+
+          if (type === 'plane' || type === 'cube') {
+            data.baseWidth = Math.max(
+              0.1,
+              snapValue(Math.abs(localDisp.x) * 2, editorStore.drawingSnapStep, editorStore.drawingSnapEnabled)
+            );
+            data.baseDepth = Math.max(
+              0.1,
+              snapValue(Math.abs(localDisp.z) * 2, editorStore.drawingSnapStep, editorStore.drawingSnapEnabled)
+            );
+          } else {
+            data.baseRadius = Math.max(
+              0.1,
+              snapValue(intersectionPoint.distanceTo(data.anchorPoint), editorStore.drawingSnapStep, editorStore.drawingSnapEnabled)
+            );
+            data.minorRadius = data.baseRadius * 0.25;
+          }
+
+          // Geometry reuse optimization: dispose old geometry and assign updated geometry
+          previewMeshRef.current.geometry.dispose();
+          previewMeshRef.current.geometry = generatePrimitiveGeometry(type, data);
+        }
+      } else if (editorStore.drawingStep === 'EXTRUDING_HEIGHT') {
+        const dy = (data.startClientY - e.clientY) * 0.03;
+        const snappedH = snapValue(dy, editorStore.drawingSnapStep, editorStore.drawingSnapEnabled);
+        data.height = Math.abs(snappedH) < 0.1 ? (snappedH >= 0 ? 0.1 : -0.1) : snappedH;
+
+        if (type === 'torus') {
+          data.minorRadius = Math.max(
+            0.05,
+            snapValue(Math.abs(dy), editorStore.drawingSnapStep, editorStore.drawingSnapEnabled)
+          );
+        }
+
+        // Geometry reuse optimization: dispose old geometry and assign updated geometry
+        previewMeshRef.current.geometry.dispose();
+        previewMeshRef.current.geometry = generatePrimitiveGeometry(type, data);
+      }
+
+      return; // Do not process selection or sculpt raycasts while drawing
+    }
+
     const rect = containerRef.current.getBoundingClientRect();
     const mouse = new THREE.Vector2(
       ((e.clientX - rect.left) / rect.width) * 2 - 1,
@@ -477,6 +693,91 @@ export const Viewport3D: React.FC = () => {
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return; // Left click only
 
+    // --- Interactive Primitive Drawing Trigger ---
+    if (editorStore.isInteractiveDrawingMode) {
+      if (!containerRef.current || !sceneRef.current || !cameraRef.current) return;
+
+      const rect = containerRef.current.getBoundingClientRect();
+      const mouse = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1
+      );
+
+      if (editorStore.drawingStep === 'IDLE') {
+        const intersection = getRayIntersectionOnSceneOrGrid(mouse);
+        if (!intersection) return;
+
+        const anchorPoint = snapVector3(
+          intersection.point,
+          editorStore.drawingSnapStep,
+          editorStore.drawingSnapEnabled
+        );
+        const surfaceNormal = intersection.normal.clone();
+
+        const alignQuaternion = new THREE.Quaternion().setFromUnitVectors(
+          new THREE.Vector3(0, 1, 0),
+          surfaceNormal
+        );
+
+        const constructionPlane = new THREE.Plane().setFromNormalAndCoplanarPoint(
+          surfaceNormal,
+          anchorPoint
+        );
+
+        const type = editorStore.drawingPrimitiveType;
+        const initialParams = {
+          baseWidth: 0.1,
+          baseDepth: 0.1,
+          baseRadius: 0.1,
+          height: 0.05,
+          minorRadius: 0.02,
+          starPoints: 5,
+        };
+
+        const geom = generatePrimitiveGeometry(type, initialParams);
+        const mat = new THREE.MeshStandardMaterial({
+          color: 0x4a90e2,
+          transparent: true,
+          opacity: 0.75,
+          roughness: 0.3,
+          metalness: 0.1,
+          side: THREE.DoubleSide,
+        });
+
+        const previewMesh = new THREE.Mesh(geom, mat);
+        previewMesh.quaternion.copy(alignQuaternion);
+        previewMesh.position.copy(anchorPoint);
+
+        sceneRef.current.add(previewMesh);
+        previewMeshRef.current = previewMesh;
+
+        drawingDataRef.current = {
+          anchorPoint,
+          surfaceNormal,
+          alignQuaternion,
+          constructionPlane,
+          baseWidth: 0.1,
+          baseDepth: 0.1,
+          baseRadius: 0.1,
+          height: 0.05,
+          minorRadius: 0.02,
+          starPoints: 5,
+          startClientY: e.clientY,
+        };
+
+        editorStore.drawingStep = 'DRAWING_BASE';
+        editorStore.notify();
+
+        if (controlsRef.current) controlsRef.current.enabled = false;
+        return;
+      }
+
+      if (editorStore.drawingStep === 'EXTRUDING_HEIGHT') {
+        finalizeInteractivePrimitive();
+        return;
+      }
+    }
+
     if (editorStore.mode === 'sculpt') {
       const selObj = editorStore.getSelectedObject();
       if (selObj) {
@@ -515,7 +816,25 @@ export const Viewport3D: React.FC = () => {
     }
   };
 
-  const handlePointerUp = () => {
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    // --- Interactive Primitive Drawing Transition ---
+    if (
+      editorStore.isInteractiveDrawingMode &&
+      editorStore.drawingStep === 'DRAWING_BASE' &&
+      previewMeshRef.current &&
+      drawingDataRef.current
+    ) {
+      const type = editorStore.drawingPrimitiveType;
+      if (type === 'plane' || type === 'sphere') {
+        finalizeInteractivePrimitive();
+      } else {
+        editorStore.drawingStep = 'EXTRUDING_HEIGHT';
+        drawingDataRef.current.startClientY = e.clientY;
+        editorStore.notify();
+      }
+      return;
+    }
+
     isSculptingRef.current = false;
     lastHitPointRef.current = null;
     if (controlsRef.current) controlsRef.current.enabled = true;

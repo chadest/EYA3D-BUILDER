@@ -219,37 +219,38 @@ export const ToolShelf: React.FC = () => {
       {/* 1. OBJECT MODE TOOLBAR */}
       {mode === 'object' && (
         <div className="flex items-center space-x-2">
-          {/* Quick Primitive Adding Icons (Icon-Only!) */}
-          <div className="flex items-center bg-[#0F1113] p-1 rounded border border-[#2D3139] space-x-1">
-            <button
-              onClick={() => handleAddPrimitive('cube')}
-              className="p-1.5 rounded hover:bg-[#2D3139] text-[#E0E0E0] hover:text-[#4A90E2] transition-colors"
-              title="Add Cube"
-            >
-              <Box className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => handleAddPrimitive('sphere')}
-              className="p-1.5 rounded hover:bg-[#2D3139] text-[#E0E0E0] hover:text-[#4A90E2] transition-colors"
-              title="Add Sphere"
-            >
-              <Circle className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => handleAddPrimitive('cylinder')}
-              className="p-1.5 rounded hover:bg-[#2D3139] text-[#E0E0E0] hover:text-[#4A90E2] transition-colors"
-              title="Add Cylinder"
-            >
-              <CylinderIcon className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => handleAddPrimitive('torus')}
-              className="p-1.5 rounded hover:bg-[#2D3139] text-[#E0E0E0] hover:text-[#4A90E2] transition-colors"
-              title="Add Torus"
-            >
-              <Disc className="w-4 h-4" />
-            </button>
-          </div>
+          {/* Interactive Draw Mode Toggle */}
+          <button
+            onClick={() => {
+              editorStore.isInteractiveDrawingMode = !editorStore.isInteractiveDrawingMode;
+              editorStore.notify();
+            }}
+            className={`flex items-center space-x-1.5 px-2.5 py-1 rounded text-xs font-semibold border transition-all ${
+              editorStore.isInteractiveDrawingMode
+                ? 'bg-[#4A90E2] border-[#4A90E2] text-white shadow-md'
+                : 'bg-[#0F1113] border-[#2D3139] text-[#8E9299] hover:text-white'
+            }`}
+            title="Activer l'outil de dessin interactif de solides 3D dans le Viewport"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+            <span className="text-[11px]">Dessin Interactif</span>
+          </button>
+
+          {/* Add Solides Popup Trigger Button (+) */}
+          <button
+            onClick={() => {
+              editorStore.isPrimitivePopupOpen = !editorStore.isPrimitivePopupOpen;
+              editorStore.notify();
+            }}
+            className={`p-1.5 rounded-lg border transition-all flex items-center justify-center ${
+              editorStore.isPrimitivePopupOpen
+                ? 'bg-[#4A90E2] border-[#4A90E2] text-white shadow-md'
+                : 'bg-[#0F1113] border-[#2D3139] text-[#E0E0E0] hover:text-white hover:bg-[#1C1E22] hover:border-[#4A90E2]'
+            }`}
+            title={editorStore.isPrimitivePopupOpen ? "Fermer le menu des solides" : "Ouvrir le menu de création de solides 3D (+)"}
+          >
+            <Plus className="w-4 h-4" />
+          </button>
         </div>
       )}
 

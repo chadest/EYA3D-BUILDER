@@ -29,14 +29,21 @@ import {
   ChevronRight,
   PanelRightClose,
   PanelRightOpen,
+  Layout,
+  Tv,
+  XCircle,
+  Zap,
+  RotateCcw
 } from 'lucide-react';
 import * as THREE from 'three';
 import { editorStore } from '../../store/EditorStore';
 import { SelectionLevel } from '../../types/editor';
+import { updateTextPrimitiveMesh } from '../../core/primitives/textPrimitive';
 
 export const PropertyPanel: React.FC = () => {
   const [, setTick] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
+  const [backdropDropdownOpen, setBackdropDropdownOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'scene' | 'material' | 'modifiers'>('scene');
 
   useEffect(() => {
@@ -281,6 +288,165 @@ export const PropertyPanel: React.FC = () => {
                 title="Simuler la course du soleil autour de la scène"
               />
             </div>
+
+            {/* Environnement de Scène Selector */}
+            <div className="border-t border-[#2D3139] pt-2.5 mt-1 space-y-2 relative">
+              <div className="flex items-center space-x-1.5 font-bold text-amber-400 mb-2">
+                <Settings className="w-3.5 h-3.5" />
+                <span>Environnement de Scène</span>
+              </div>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setBackdropDropdownOpen(!backdropDropdownOpen)}
+                  className="bg-slate-800 text-white border border-slate-700 px-3 py-2 rounded-lg flex items-center justify-between w-full"
+                >
+                  <span className="truncate flex items-center space-x-2">
+                    {editorStore.backdropType === 'StudioCyclorama' && <><Tv size={16} /> <span>StudioCyclorama</span></>}
+                    {editorStore.backdropType === 'Plane' && <><Grid size={16} /> <span>Plane Surface</span></>}
+                    {editorStore.backdropType === 'None' && <><EyeOff size={16} /> <span>Aucun</span></>}
+                  </span>
+                  <ChevronDown size={16} className="text-gray-400 shrink-0" />
+                </button>
+
+                {backdropDropdownOpen && (
+                  <>
+                    <div 
+                      className="fixed inset-0 z-40" 
+                      onClick={() => setBackdropDropdownOpen(false)} 
+                    />
+                    <div className="absolute left-0 right-0 z-50 mt-1 w-full bg-slate-900 border border-slate-700 rounded-lg shadow-xl p-1 animate-in fade-in slide-in-from-top-1">
+                      <div
+                        onClick={() => {
+                          editorStore.setBackdropType('StudioCyclorama');
+                          setBackdropDropdownOpen(false);
+                        }}
+                        className={`flex items-center space-x-2 hover:bg-blue-600 hover:text-white rounded-md p-2 transition-colors cursor-pointer ${
+                          editorStore.backdropType === 'StudioCyclorama' ? 'bg-blue-600 text-white' : 'text-slate-300'
+                        }`}
+                      >
+                        <Tv size={16} />
+                        <span>StudioCyclorama</span>
+                      </div>
+                      <div
+                        onClick={() => {
+                          editorStore.setBackdropType('Plane');
+                          setBackdropDropdownOpen(false);
+                        }}
+                        className={`flex items-center space-x-2 hover:bg-blue-600 hover:text-white rounded-md p-2 transition-colors cursor-pointer ${
+                          editorStore.backdropType === 'Plane' ? 'bg-blue-600 text-white' : 'text-slate-300'
+                        }`}
+                      >
+                        <Grid size={16} />
+                        <span>Plane Surface</span>
+                      </div>
+                      <div
+                        onClick={() => {
+                          editorStore.setBackdropType('None');
+                          setBackdropDropdownOpen(false);
+                        }}
+                        className={`flex items-center space-x-2 hover:bg-blue-600 hover:text-white rounded-md p-2 transition-colors cursor-pointer ${
+                          editorStore.backdropType === 'None' ? 'bg-blue-600 text-white' : 'text-slate-300'
+                        }`}
+                      >
+                        <EyeOff size={16} />
+                        <span>Aucun</span>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Physics Simulation */}
+            <div className="border-t border-[#2D3139] pt-2.5 mt-1 space-y-2">
+              <div className="flex items-center space-x-1.5 font-bold text-amber-400">
+                <Zap className="w-3.5 h-3.5" />
+                <span>Simulation Physique</span>
+              </div>
+              <div className="flex space-x-2">
+                <button
+                  type="button"
+                  onClick={() => editorStore.togglePhysics()}
+                  className={`flex-1 flex items-center justify-center space-x-1 px-3 py-2 rounded transition-colors ${
+                    editorStore.isPhysicsActive
+                      ? 'bg-amber-500 text-white font-bold'
+                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                  }`}
+                >
+                  <Zap size={16} />
+                  <span>{editorStore.isPhysicsActive ? 'Stop' : 'Play'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => editorStore.resetPhysics()}
+                  className="px-3 py-2 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white rounded transition-colors flex items-center"
+                  title="Reset Simulation"
+                >
+                  <RotateCcw size={16} />
+                </button>
+              </div>
+            </div>
+
+            {/* Fond de Studio (Cyclorama) */}
+            {editorStore.backdropType !== 'None' && (
+              <div className="border-t border-[#2D3139] pt-2.5 mt-1 space-y-2">
+                <div className="flex items-center space-x-1.5 font-bold text-amber-400">
+                  <Palette className="w-3.5 h-3.5" />
+                  <span>Fond de Studio (Cyclorama)</span>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <div className="grid grid-cols-3 gap-1">
+                    <button
+                      onClick={() => editorStore.setCycloramaColor('#1e293b')}
+                      className={`px-1.5 py-1 rounded text-[10px] font-semibold border transition-all ${
+                        editorStore.cycloramaColor === '#1e293b'
+                          ? 'bg-[#1e293b] text-white border-amber-500 shadow'
+                          : 'bg-[#111316] text-[#8E9299] border-[#2D3139] hover:text-white hover:bg-white/5'
+                      }`}
+                      title="Gris Bleu Nuit"
+                    >
+                      Gris Nuit
+                    </button>
+                    <button
+                      onClick={() => editorStore.setCycloramaColor('#f8fafc')}
+                      className={`px-1.5 py-1 rounded text-[10px] font-semibold border transition-all ${
+                        editorStore.cycloramaColor === '#f8fafc'
+                          ? 'bg-[#f8fafc] text-slate-900 border-amber-500 shadow'
+                          : 'bg-[#111316] text-[#8E9299] border-[#2D3139] hover:text-white hover:bg-white/5'
+                      }`}
+                      title="Blanc Studio Pur"
+                    >
+                      Blanc Pur
+                    </button>
+                    <button
+                      onClick={() => editorStore.setCycloramaColor('#10b981')}
+                      className={`px-1.5 py-1 rounded text-[10px] font-semibold border transition-all ${
+                        editorStore.cycloramaColor === '#10b981'
+                          ? 'bg-[#10b981] text-white border-amber-500 shadow'
+                          : 'bg-[#111316] text-[#8E9299] border-[#2D3139] hover:text-white hover:bg-white/5'
+                      }`}
+                      title="Vert de Masquage / Greenscreen"
+                    >
+                      Greenscreen
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between bg-[#111316] p-1.5 rounded border border-[#2D3139]">
+                    <span className="text-[#8E9299]">Couleur</span>
+                    <div className="flex items-center space-x-2">
+                      <span className="font-mono text-[10px] text-[#8E9299] uppercase">{editorStore.cycloramaColor}</span>
+                      <input
+                        type="color"
+                        value={editorStore.cycloramaColor}
+                        onChange={e => editorStore.setCycloramaColor(e.target.value)}
+                        className="w-6 h-6 rounded cursor-pointer bg-transparent border-0 p-0"
+                        title="Sélecteur de couleur personnalisé"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -457,14 +623,130 @@ export const PropertyPanel: React.FC = () => {
                 onChange={e => {
                   selObj.materialProps.color = e.target.value;
                   if (selObj.mesh) {
-                    const mat = selObj.mesh.material as THREE.MeshStandardMaterial;
-                    if (mat && mat.color) mat.color.set(e.target.value);
+                    if (selObj.mesh.userData.isText) {
+                      updateTextPrimitiveMesh(selObj.mesh, selObj.mesh.userData.textValue || 'Text', e.target.value);
+                    } else {
+                      const mat = selObj.mesh.material as THREE.MeshStandardMaterial;
+                      if (mat && mat.color) mat.color.set(e.target.value);
+                    }
                   }
                   editorStore.notify();
                 }}
                 className="w-8 h-8 rounded cursor-pointer bg-transparent border-0"
               />
             </div>
+
+            {selObj.mesh?.userData?.isText && (
+              <div className="space-y-3 pt-2 border-t border-[#2D3139]/50">
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[#8E9299]">
+                    <span>Contenu du texte</span>
+                  </div>
+                  <input
+                    type="text"
+                    value={selObj.mesh.userData.textValue || 'Text'}
+                    onChange={e => {
+                      if (selObj.mesh) {
+                        const newText = e.target.value;
+                        if (!selObj.textProps) {
+                          selObj.textProps = {
+                            textString: newText,
+                            height: selObj.mesh.userData.height !== undefined ? selObj.mesh.userData.height : 0.2,
+                            size: selObj.mesh.userData.size !== undefined ? selObj.mesh.userData.size : 1.0
+                          };
+                        } else {
+                          selObj.textProps.textString = newText;
+                        }
+                        updateTextPrimitiveMesh(
+                          selObj.mesh,
+                          newText,
+                          selObj.materialProps.color,
+                          selObj.textProps.height,
+                          selObj.textProps.size
+                        );
+                        editorStore.notify();
+                      }
+                    }}
+                    className="w-full bg-[#16181C] border border-[#2D3139] rounded px-2 py-1.5 text-white focus:outline-none focus:border-[#4A90E2] transition-colors font-sans text-xs"
+                    placeholder="Saisissez votre texte..."
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[#8E9299]">
+                    <span>Épaisseur d'extrusion</span>
+                    <span className="font-mono text-[#4A90E2]">{(selObj.mesh.userData.height ?? 0.2).toFixed(2)}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.05"
+                    max="2.0"
+                    step="0.05"
+                    value={selObj.mesh.userData.height ?? 0.2}
+                    onChange={e => {
+                      if (selObj.mesh) {
+                        const newHeight = parseFloat(e.target.value);
+                        if (!selObj.textProps) {
+                          selObj.textProps = {
+                            textString: selObj.mesh.userData.textValue || 'Text',
+                            height: newHeight,
+                            size: selObj.mesh.userData.size !== undefined ? selObj.mesh.userData.size : 1.0
+                          };
+                        } else {
+                          selObj.textProps.height = newHeight;
+                        }
+                        updateTextPrimitiveMesh(
+                          selObj.mesh,
+                          selObj.mesh.userData.textValue || 'Text',
+                          selObj.materialProps.color,
+                          newHeight,
+                          selObj.textProps.size
+                        );
+                        editorStore.notify();
+                      }
+                    }}
+                    className="w-full accent-[#4A90E2]"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[#8E9299]">
+                    <span>Taille des caractères</span>
+                    <span className="font-mono text-[#4A90E2]">{(selObj.mesh.userData.size ?? 1.0).toFixed(2)}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="5.0"
+                    step="0.05"
+                    value={selObj.mesh.userData.size ?? 1.0}
+                    onChange={e => {
+                      if (selObj.mesh) {
+                        const newSize = parseFloat(e.target.value);
+                        if (!selObj.textProps) {
+                          selObj.textProps = {
+                            textString: selObj.mesh.userData.textValue || 'Text',
+                            height: selObj.mesh.userData.height !== undefined ? selObj.mesh.userData.height : 0.2,
+                            size: newSize
+                          };
+                        } else {
+                          selObj.textProps.size = newSize;
+                        }
+                        updateTextPrimitiveMesh(
+                          selObj.mesh,
+                          selObj.mesh.userData.textValue || 'Text',
+                          selObj.materialProps.color,
+                          selObj.textProps.height,
+                          newSize
+                        );
+                        editorStore.notify();
+                      }
+                    }}
+                    className="w-full accent-[#4A90E2]"
+                  />
+                </div>
+              </div>
+            )}
 
             <div className="space-y-1">
               <div className="flex justify-between text-[#8E9299]">
@@ -475,7 +757,7 @@ export const PropertyPanel: React.FC = () => {
                 type="range"
                 min="0"
                 max="1"
-                step="0.05"
+                step="0.01"
                 value={selObj.materialProps.roughness}
                 onChange={e => {
                   selObj.materialProps.roughness = parseFloat(e.target.value);
@@ -487,6 +769,127 @@ export const PropertyPanel: React.FC = () => {
                 className="w-full accent-[#4A90E2]"
               />
             </div>
+
+            <div className="space-y-1">
+              <div className="flex justify-between text-[#8E9299]">
+                <span>Metalness</span>
+                <span className="font-mono text-[#4A90E2]">{selObj.materialProps.metalness.toFixed(2)}</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={selObj.materialProps.metalness}
+                onChange={e => {
+                  selObj.materialProps.metalness = parseFloat(e.target.value);
+                  if (selObj.mesh) {
+                    (selObj.mesh.material as THREE.MeshStandardMaterial).metalness = selObj.materialProps.metalness;
+                  }
+                  editorStore.notify();
+                }}
+                className="w-full accent-[#4A90E2]"
+              />
+            </div>
+
+            <div className="space-y-3 pt-2 border-t border-[#2D3139]/50">
+              <div className="flex items-center justify-between">
+                <span className="text-[#8E9299]">Emission Color</span>
+                <input
+                  type="color"
+                  value={selObj.materialProps.emissive}
+                  onChange={e => {
+                    selObj.materialProps.emissive = e.target.value;
+                    if (selObj.mesh) {
+                      const mat = selObj.mesh.material as THREE.MeshStandardMaterial;
+                      if (mat && mat.emissive) mat.emissive.set(e.target.value);
+                    }
+                    editorStore.notify();
+                  }}
+                  className="w-8 h-8 rounded cursor-pointer bg-transparent border-0"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex justify-between text-[#8E9299]">
+                  <span>Emission Intensity</span>
+                  <span className="font-mono text-[#4A90E2]">{selObj.materialProps.emissiveIntensity.toFixed(2)}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="5"
+                  step="0.1"
+                  value={selObj.materialProps.emissiveIntensity}
+                  onChange={e => {
+                    selObj.materialProps.emissiveIntensity = parseFloat(e.target.value);
+                    if (selObj.mesh) {
+                      (selObj.mesh.material as THREE.MeshStandardMaterial).emissiveIntensity = selObj.materialProps.emissiveIntensity;
+                    }
+                    editorStore.notify();
+                  }}
+                  className="w-full accent-[#4A90E2]"
+                />
+              </div>
+            </div>
+
+            {selObj.mesh && (selObj.mesh.material as THREE.MeshStandardMaterial).map && (
+              <div className="space-y-3 pt-2 border-t border-[#2D3139]/50">
+                <span className="text-[#8E9299] block mb-2">Texture Tiling</span>
+                
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[#8E9299]">
+                    <span>Repeat X</span>
+                    <span className="font-mono text-[#4A90E2]">{(selObj.materialProps.textureRepeatX || 1).toFixed(2)}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="10"
+                    step="0.1"
+                    value={selObj.materialProps.textureRepeatX || 1}
+                    onChange={e => {
+                      const val = parseFloat(e.target.value);
+                      selObj.materialProps.textureRepeatX = val;
+                      const mat = selObj.mesh!.material as THREE.MeshStandardMaterial;
+                      if (mat.map) {
+                        mat.map.repeat.x = val;
+                        mat.map.wrapS = THREE.RepeatWrapping;
+                        mat.map.needsUpdate = true;
+                      }
+                      editorStore.notify();
+                    }}
+                    className="w-full accent-[#4A90E2]"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[#8E9299]">
+                    <span>Repeat Y</span>
+                    <span className="font-mono text-[#4A90E2]">{(selObj.materialProps.textureRepeatY || 1).toFixed(2)}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="10"
+                    step="0.1"
+                    value={selObj.materialProps.textureRepeatY || 1}
+                    onChange={e => {
+                      const val = parseFloat(e.target.value);
+                      selObj.materialProps.textureRepeatY = val;
+                      const mat = selObj.mesh!.material as THREE.MeshStandardMaterial;
+                      if (mat.map) {
+                        mat.map.repeat.y = val;
+                        mat.map.wrapT = THREE.RepeatWrapping;
+                        mat.map.needsUpdate = true;
+                      }
+                      editorStore.notify();
+                    }}
+                    className="w-full accent-[#4A90E2]"
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

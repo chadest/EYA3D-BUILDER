@@ -224,6 +224,60 @@ class EditorStore {
     this.notify();
   }
 
+  // Physics Settings
+  public isPhysicsActive: boolean = false;
+  public physicsInitialTransforms: Record<string, { position: THREE.Vector3, rotation: THREE.Euler }> = {};
+
+  public togglePhysics(): void {
+    if (!this.isPhysicsActive) {
+      // Snapshot initial transforms
+      this.physicsInitialTransforms = {};
+      this.objects.forEach(obj => {
+        if (obj.mesh) {
+          this.physicsInitialTransforms[obj.id] = {
+            position: obj.mesh.position.clone(),
+            rotation: obj.mesh.rotation.clone(),
+          };
+        }
+      });
+      this.isPhysicsActive = true;
+    } else {
+      this.isPhysicsActive = false;
+    }
+    this.notify();
+  }
+
+  public resetPhysics(): void {
+    this.isPhysicsActive = false;
+    
+    // Restore transforms
+    this.objects.forEach(obj => {
+      if (obj.mesh && this.physicsInitialTransforms[obj.id]) {
+        const initial = this.physicsInitialTransforms[obj.id];
+        obj.mesh.position.copy(initial.position);
+        obj.mesh.rotation.copy(initial.rotation);
+      }
+    });
+    
+    // Clear snapshot
+    this.physicsInitialTransforms = {};
+    this.notify();
+  }
+
+  // Cyclorama Settings for Render Mode
+  public cycloramaColor: string = '#1e293b';
+  public backdropType: 'StudioCyclorama' | 'Plane' | 'None' = 'StudioCyclorama';
+
+  public setCycloramaColor(color: string): void {
+    this.cycloramaColor = color;
+    this.notify();
+  }
+
+  public setBackdropType(type: 'StudioCyclorama' | 'Plane' | 'None'): void {
+    this.backdropType = type;
+    this.notify();
+  }
+
   public setSunAngleTime(progress: number): void {
     // progress from 0 to 1 representing time of day arc
     const radius = 25;
@@ -303,7 +357,7 @@ class EditorStore {
   // Interactive Primitive Drawing State
   public isInteractiveDrawingMode: boolean = false;
   public isPrimitivePopupOpen: boolean = false;
-  public drawingPrimitiveType: 'plane' | 'cube' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'pyramid' | 'star3d' = 'cube';
+  public drawingPrimitiveType: 'plane' | 'cube' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'pyramid' | 'star3d' | 'text' = 'cube';
   public drawingSnapEnabled: boolean = true;
   public drawingSnapStep: number = 0.5;
   public drawingStep: 'IDLE' | 'DRAWING_BASE' | 'EXTRUDING_HEIGHT' | 'COMPLETED' = 'IDLE';
@@ -409,12 +463,24 @@ class EditorStore {
       baseGeometry: backupGeom.clone(),
       modifiers: [],
       materialProps: {
-        color: '#3b82f6',
+        color: mesh.userData.colorValue || '#3b82f6',
         roughness: 0.3,
         metalness: 0.1,
+        emissive: '#000000',
+        emissiveIntensity: 0.0,
+        textureRepeatX: 1,
+        textureRepeatY: 1,
         flatShading: this.flatShading,
       },
     };
+
+    if (mesh.userData.isText) {
+      obj.textProps = {
+        textString: mesh.userData.textValue || 'Eya3D',
+        height: mesh.userData.height !== undefined ? mesh.userData.height : 0.2,
+        size: mesh.userData.size !== undefined ? mesh.userData.size : 1.0,
+      };
+    }
 
     mesh.userData.id = obj.id;
     this.objects.push(obj);

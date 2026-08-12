@@ -15,7 +15,8 @@ export type InteractivePrimitiveType =
   | 'cone'
   | 'torus'
   | 'pyramid'
-  | 'star3d';
+  | 'star3d'
+  | 'text';
 
 export type DrawingStep = 'IDLE' | 'DRAWING_BASE' | 'EXTRUDING_HEIGHT' | 'COMPLETED';
 
@@ -174,6 +175,11 @@ export function generatePrimitiveGeometry(
         geom.translate(0, safeHeight, 0);
       }
       return geom;
+    }
+
+    case 'text': {
+      // Basic plaque geometry for fallback rendering
+      return new THREE.BoxGeometry(1.6, 0.8, 0.08);
     }
 
     default:

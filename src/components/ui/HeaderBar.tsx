@@ -45,7 +45,7 @@ export const HeaderBar: React.FC = () => {
       return;
     }
     const content = exportToOBJ(selObj.mesh);
-    downloadFile(content, `${selObj.name || 'PolyCraftMesh'}.obj`, 'text/plain');
+    downloadFile(content, `${selObj.name || 'Eya3DMesh'}.obj`, 'text/plain');
   };
 
   const handleExportSTL = () => {
@@ -55,7 +55,7 @@ export const HeaderBar: React.FC = () => {
       return;
     }
     const content = exportToSTL(selObj.mesh);
-    downloadFile(content, `${selObj.name || 'PolyCraftMesh'}.stl`, 'text/plain');
+    downloadFile(content, `${selObj.name || 'Eya3DMesh'}.stl`, 'text/plain');
   };
 
   const handleAddPrimitive = (type: string) => {
@@ -121,17 +121,12 @@ export const HeaderBar: React.FC = () => {
 
   return (
     <header id="header-bar" className="h-10 bg-[#16181C] border-b border-[#2D3139] text-[#E0E0E0] px-3 flex items-center justify-between select-none z-30">
-      {/* Left: SelfCAD style Logo & Dropdown Menus */}
+      {/* Left: Eya3D Title & Dropdown Menus */}
       <div className="flex items-center space-x-4">
-        {/* Logo */}
-        <div className="flex items-center space-x-1.5 cursor-pointer">
-          <div className="w-5 h-5 rounded bg-[#4A90E2] flex items-center justify-center text-white font-black text-[10px] shadow-sm">
-            3D
-          </div>
-          <span className="text-xs font-bold tracking-tight text-white font-sans">
-            Poly<span className="text-[#4A90E2]">Craft</span>
-          </span>
-        </div>
+        {/* Logo Text */}
+        <span className="text-xl font-bold tracking-wider text-white font-sans cursor-pointer select-none">
+          Eya3D
+        </span>
 
         {/* Top Dropdown Menus */}
         <div className="flex items-center space-x-1 text-xs text-[#8E9299]">

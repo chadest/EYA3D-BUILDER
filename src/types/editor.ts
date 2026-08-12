@@ -88,6 +88,12 @@ export type ModifierConfig =
   | LatticeModifierConfig;
 
 // Object Data in Scene
+export interface TextProps {
+  textString: string;
+  height: number; // extrusion depth
+  size: number;   // font size
+}
+
 export interface SceneObject {
   id: string;
   name: string;
@@ -102,8 +108,13 @@ export interface SceneObject {
     color: string;
     roughness: number;
     metalness: number;
+    emissive: string;
+    emissiveIntensity: number;
+    textureRepeatX?: number;
+    textureRepeatY?: number;
     flatShading: boolean;
   };
+  textProps?: TextProps;
 }
 
 // Spline Control Point

@@ -21,6 +21,7 @@ import {
   Hand,
   ToggleLeft,
   ToggleRight,
+  Type,
 } from 'lucide-react';
 import {
   InteractivePrimitiveType,
@@ -69,6 +70,7 @@ export const InteractivePrimitivePopup: React.FC<InteractivePrimitivePopupProps>
     { id: 'pyramid', name: 'Pyramide', icon: <Triangle className="w-4 h-4 rotate-180" />, desc: 'Base à 4 côtés + sommet' },
     { id: 'torus', name: 'Torus', icon: <Disc className="w-4 h-4" />, desc: 'Rayon principal + épaisseur tube' },
     { id: 'star3d', name: 'Étoile 3D', icon: <Star className="w-4 h-4" />, desc: 'Forme étoile 2D + profondeur' },
+    { id: 'text', name: 'Texte', icon: <Type className="w-4 h-4" />, desc: 'Plaque de texte 3D personnalisable' },
   ];
 
   const getStepText = () => {

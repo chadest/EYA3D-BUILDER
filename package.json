@@ -1,7 +1,8 @@
 {
-  "name": "react-example",
+  "name": "eya3d",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "Eya3D - Professional browser 3D modeling SaaS with mesh editing, sculpting, and studio rendering.",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -13,6 +14,7 @@
   "dependencies": {
     "@google/genai": "^2.4.0",
     "@monaco-editor/react": "^4.7.0",
+    "@react-three/rapier": "^2.2.0",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
     "dotenv": "^17.2.3",

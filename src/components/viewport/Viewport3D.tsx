@@ -26,6 +26,7 @@ import {
   snapVector3,
   generatePrimitiveGeometry,
 } from '../../core/primitives/interactivePrimitives';
+import { createTextPrimitiveMesh } from '../../core/primitives/textPrimitive';
 import { Trash2, Camera } from 'lucide-react';
 import { InteractivePrimitivePopup } from '../ui/InteractivePrimitivePopup';
 import { TransformToolbar } from '../ui/TransformToolbar';
@@ -33,6 +34,8 @@ import { NavigationToolbar } from '../ui/NavigationToolbar';
 import { AIChatButton } from '../ui/AIChatButton';
 import { ScriptEditor } from '../ui/ScriptEditor';
 import { RealisticRenderPipeline } from '../../core/rendering/renderPipeline';
+import { StudioCyclorama } from './StudioCyclorama';
+import { physicsEngine } from '../../core/physics/PhysicsEngine';
 
 // 1. Interactive 3D Coordinate Axis Orientation Gizmo (Matching User Screenshot)
 interface ViewOrientationGizmoProps {
@@ -269,6 +272,8 @@ export const Viewport3D: React.FC = () => {
   const selectionGizmoRef = useRef<THREE.Group>(new THREE.Group());
   const latticeWireframeRef = useRef<THREE.LineSegments | null>(null);
   const renderPipelineRef = useRef<RealisticRenderPipeline | null>(null);
+  const cycloramaRef = useRef<StudioCyclorama | null>(null);
+  const planeRef = useRef<THREE.Mesh | null>(null);
   const xRayWireframeMapRef = useRef<Map<string, THREE.LineSegments>>(new Map());
   const interactiveSunRef = useRef<THREE.DirectionalLight | null>(null);
   const sunGizmoMeshRef = useRef<THREE.Mesh | null>(null);
@@ -371,6 +376,12 @@ export const Viewport3D: React.FC = () => {
   };
 
   const handleAddDirectPrimitive = (type: InteractivePrimitiveType) => {
+    if (type === 'text') {
+      const mesh = createTextPrimitiveMesh('Text', '#4a90e2');
+      mesh.position.set(0, 0.4, 0);
+      editorStore.addObject('Texte', mesh);
+      return;
+    }
     const geom = generatePrimitiveGeometry(type, {
       baseWidth: 1,
       baseDepth: 1,
@@ -399,19 +410,28 @@ export const Viewport3D: React.FC = () => {
     const type = editorStore.drawingPrimitiveType;
     const data = drawingDataRef.current;
 
-    const finalGeom = generatePrimitiveGeometry(type, data);
-    const finalMat = new THREE.MeshStandardMaterial({
-      color: 0x4a90e2,
-      roughness: 0.3,
-      metalness: 0.1,
-      flatShading: editorStore.flatShading,
-    });
+    let mesh: THREE.Mesh;
 
-    const mesh = new THREE.Mesh(finalGeom, finalMat);
-    mesh.quaternion.copy(data.alignQuaternion);
-    mesh.position.copy(data.anchorPoint);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
+    if (type === 'text') {
+      mesh = createTextPrimitiveMesh('Text', '#4a90e2');
+      mesh.quaternion.copy(data.alignQuaternion);
+      mesh.position.copy(data.anchorPoint);
+      mesh.position.y += 0.4; // lift so bottom of plaque sits on ground
+    } else {
+      const finalGeom = generatePrimitiveGeometry(type, data);
+      const finalMat = new THREE.MeshStandardMaterial({
+        color: 0x4a90e2,
+        roughness: 0.3,
+        metalness: 0.1,
+        flatShading: editorStore.flatShading,
+      });
+
+      mesh = new THREE.Mesh(finalGeom, finalMat);
+      mesh.quaternion.copy(data.alignQuaternion);
+      mesh.position.copy(data.anchorPoint);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+    }
 
     editorStore.addObject(`Interactive_${type}`, mesh);
 
@@ -1114,6 +1134,16 @@ export const Viewport3D: React.FC = () => {
     sunLight.shadow.mapSize.width = 2048;
     sunLight.shadow.mapSize.height = 2048;
     sunLight.shadow.bias = sunSettings.shadowBias;
+    
+    // Expand shadow camera frustum to encompass the workspace and cyclorama cleanly
+    sunLight.shadow.camera.near = 0.5;
+    sunLight.shadow.camera.far = 150;
+    sunLight.shadow.camera.left = -35;
+    sunLight.shadow.camera.right = 35;
+    sunLight.shadow.camera.top = 35;
+    sunLight.shadow.camera.bottom = -35;
+    sunLight.shadow.camera.updateProjectionMatrix();
+
     scene.add(sunLight);
     scene.add(sunLight.target);
     interactiveSunRef.current = sunLight;
@@ -1142,6 +1172,27 @@ export const Viewport3D: React.FC = () => {
     const gridHelper = new THREE.GridHelper(20, 20, 0x4a90e2, 0x2d3139);
     gridHelper.position.y = 0;
     scene.add(gridHelper);
+
+    // Initialize Studio Cyclorama Backdrop
+    const cyclorama = new StudioCyclorama(editorStore.cycloramaColor);
+    scene.add(cyclorama.mesh);
+    cycloramaRef.current = cyclorama;
+
+    // Initialize Giant Plane Surface
+    const planeGeom = new THREE.PlaneGeometry(120, 120);
+    planeGeom.rotateX(-Math.PI / 2);
+    const planeMat = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(editorStore.cycloramaColor),
+      roughness: 0.8,
+      metalness: 0.1,
+      side: THREE.DoubleSide,
+    });
+    const planeMesh = new THREE.Mesh(planeGeom, planeMat);
+    planeMesh.position.y = -0.01; // Avoid z-fighting with grid helper
+    planeMesh.receiveShadow = true;
+    planeMesh.visible = false;
+    scene.add(planeMesh);
+    planeRef.current = planeMesh;
 
     const axesHelper = new THREE.AxesHelper(2);
     axesHelper.position.set(-5, 0.01, -5);
@@ -1224,6 +1275,10 @@ export const Viewport3D: React.FC = () => {
     let animationFrameId: number;
     const animate = () => {
       animationFrameId = requestAnimationFrame(animate);
+
+      if (editorStore.isPhysicsActive) {
+        physicsEngine.step();
+      }
 
       // Sync sun light position with physical sun mesh position
       if (sunGizmoMeshRef.current && interactiveSunRef.current) {
@@ -1346,6 +1401,27 @@ export const Viewport3D: React.FC = () => {
         if (latticeWireframeRef.current) scene.remove(latticeWireframeRef.current);
       }
 
+      // Sync Backdrop type settings
+      const type = editorStore.backdropType;
+
+      if (cycloramaRef.current) {
+        if (editorStore.isRenderMode && type === 'StudioCyclorama') {
+          cycloramaRef.current.setVisible(true);
+          cycloramaRef.current.setColor(editorStore.cycloramaColor);
+        } else {
+          cycloramaRef.current.setVisible(false);
+        }
+      }
+
+      if (planeRef.current) {
+        if (editorStore.isRenderMode && type === 'Plane') {
+          planeRef.current.visible = true;
+          (planeRef.current.material as THREE.MeshStandardMaterial).color.set(editorStore.cycloramaColor);
+        } else {
+          planeRef.current.visible = false;
+        }
+      }
+
       if (editorStore.isRenderMode) {
         gridHelper.visible = false;
         axesHelper.visible = false;
@@ -1388,6 +1464,24 @@ export const Viewport3D: React.FC = () => {
         rendererRef.current.domElement.removeEventListener('pointerup', onGizmoPointerUp, { capture: true });
         rendererRef.current.domElement.remove();
       }
+      if (cycloramaRef.current) {
+        cycloramaRef.current.dispose();
+        scene.remove(cycloramaRef.current.mesh);
+        cycloramaRef.current = null;
+      }
+      if (planeRef.current) {
+        if (planeRef.current.geometry) {
+          planeRef.current.geometry.dispose();
+        }
+        if (planeRef.current.material) {
+          const mats = Array.isArray(planeRef.current.material)
+            ? planeRef.current.material
+            : [planeRef.current.material];
+          mats.forEach(m => m.dispose());
+        }
+        scene.remove(planeRef.current);
+        planeRef.current = null;
+      }
       editorStore.activeThreeScene = null;
       editorStore.activeThreeCamera = null;
       editorStore.activeThreeRenderer = null;
@@ -1406,6 +1500,35 @@ export const Viewport3D: React.FC = () => {
       }
     }
   }, [editorStore.themeMode]);
+
+  // Sync Cyclorama and Plane color when cycloramaColor changes
+  useEffect(() => {
+    if (cycloramaRef.current) {
+      cycloramaRef.current.setColor(editorStore.cycloramaColor);
+    }
+    if (planeRef.current) {
+      (planeRef.current.material as THREE.MeshStandardMaterial).color.set(editorStore.cycloramaColor);
+    }
+  }, [editorStore.cycloramaColor]);
+
+  // Physics Initialization and sync
+  useEffect(() => {
+    if (editorStore.isPhysicsActive) {
+      physicsEngine.init().then(() => {
+        physicsEngine.startSimulation(cycloramaRef.current, planeRef.current);
+      });
+      // Disable transform controls while physics is running
+      if (transformRef.current) {
+        transformRef.current.detach();
+        transformRef.current.enabled = false;
+      }
+    } else {
+      physicsEngine.stopSimulation();
+      if (transformRef.current) {
+        transformRef.current.enabled = true;
+      }
+    }
+  }, [editorStore.isPhysicsActive]);
 
   // Sync Interactive Sun and Gizmo visibility with store settings and render mode
   useEffect(() => {
@@ -1462,6 +1585,10 @@ export const Viewport3D: React.FC = () => {
 
       const data = drawingDataRef.current;
       const type = editorStore.drawingPrimitiveType;
+
+      if (type === 'text') {
+        return; // Text size/geometry is custom/static, not extruded interactively
+      }
 
       if (editorStore.drawingStep === 'DRAWING_BASE') {
         const intersectionPoint = new THREE.Vector3();
@@ -1611,15 +1738,7 @@ export const Viewport3D: React.FC = () => {
     }
   };
 
-  // Disable OrbitControls rotation/movement completely when Lasso Mode is Active
-  useEffect(() => {
-    if (!controlsRef.current) return;
-    if (editorStore.isLassoModeActive) {
-      controlsRef.current.enabled = false;
-    } else {
-      controlsRef.current.enabled = true;
-    }
-  }, [editorStore.isLassoModeActive]);
+
 
   const performSelectionBoxSelect = (minX: number, maxX: number, minY: number, maxY: number) => {
     if (!cameraRef.current || !sceneRef.current || !containerRef.current) return;
@@ -1815,19 +1934,33 @@ export const Viewport3D: React.FC = () => {
           starPoints: 5,
         };
 
-        const geom = generatePrimitiveGeometry(type, initialParams);
-        const mat = new THREE.MeshStandardMaterial({
-          color: 0x4a90e2,
-          transparent: true,
-          opacity: 0.75,
-          roughness: 0.3,
-          metalness: 0.1,
-          side: THREE.DoubleSide,
-        });
-
-        const previewMesh = new THREE.Mesh(geom, mat);
+        let previewMesh: THREE.Mesh;
+        if (type === 'text') {
+          previewMesh = createTextPrimitiveMesh('Text', '#4a90e2');
+          const mats = Array.isArray(previewMesh.material) ? previewMesh.material : [previewMesh.material];
+          mats.forEach(m => {
+            if (m instanceof THREE.MeshStandardMaterial) {
+              m.transparent = true;
+              m.opacity = 0.75;
+            }
+          });
+        } else {
+          const geom = generatePrimitiveGeometry(type, initialParams);
+          const mat = new THREE.MeshStandardMaterial({
+            color: 0x4a90e2,
+            transparent: true,
+            opacity: 0.75,
+            roughness: 0.3,
+            metalness: 0.1,
+            side: THREE.DoubleSide,
+          });
+          previewMesh = new THREE.Mesh(geom, mat);
+        }
         previewMesh.quaternion.copy(alignQuaternion);
         previewMesh.position.copy(anchorPoint);
+        if (type === 'text') {
+          previewMesh.position.y += 0.4;
+        }
 
         sceneRef.current.add(previewMesh);
         previewMeshRef.current = previewMesh;

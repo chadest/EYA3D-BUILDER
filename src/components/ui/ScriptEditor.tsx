@@ -10,7 +10,8 @@ interface ConsoleLine {
   timestamp: string;
 }
 
-const DEFAULT_SCRIPT_BOILERPLATE = `// Script PolyCraft - Manipulez le modèle sélectionné
+const DEFAULT_SCRIPT_BOILERPLATE = `// Script Eya3D — Manipulez le modèle sélectionné en direct
+// "Eya" signifie "Ça y est !"
 if (selectedModel) {
   // Exemple : Faire tourner l'objet et doubler sa hauteur
   selectedModel.rotation.y += Math.PI / 4;
@@ -30,7 +31,7 @@ export function ScriptEditor() {
   const [consoleOutputs, setConsoleOutputs] = useState<ConsoleLine[]>([
     {
       type: 'success',
-      text: 'Console PolyCraft initialisée. Prêt pour l\'exécution de scripts.',
+      text: 'Console Eya3D initialisée. Prêt pour l\'exécution de scripts.',
       timestamp: new Date().toLocaleTimeString(),
     }
   ]);

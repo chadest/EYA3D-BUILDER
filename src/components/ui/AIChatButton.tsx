@@ -107,7 +107,7 @@ export function AIChatButton() {
             id: requestId || "ack",
             result: {
               status: "success",
-              message: `Action '${toolName}' appliquée avec succès dans la scène PolyCraft.`,
+              message: `Action '${toolName}' appliquée avec succès dans la scène Eya3D.`,
               data: actionResult
             }
           };
@@ -528,7 +528,7 @@ export function AIChatButton() {
               {isSending && (
                 <div className="flex items-center gap-1.5 text-slate-400 text-xs pl-2">
                   <Loader2 className="w-3 h-3 animate-spin text-blue-600" />
-                  <span>PolyCraft IA analyse et modélise...</span>
+                  <span>Eya3D IA analyse et modélise...</span>
                 </div>
               )}
               <div ref={chatEndRef} />

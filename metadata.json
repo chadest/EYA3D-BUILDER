@@ -1,5 +1,5 @@
 {
-  "name": "PolyCraft 3D Studio",
+  "name": "Eya3D",
   "description": "Professional browser 3D modeling SaaS with mesh editing, sculpting, splines, CSG booleans, SubD, and parametric modifiers.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

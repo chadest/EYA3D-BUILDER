@@ -183,7 +183,7 @@ app.post("/api/gemini/chat", async (req, res) => {
         model: "gemini-3.6-flash",
         contents: contents || [{ role: "user", parts: [{ text: message }] }],
         config: {
-          systemInstruction: `You are PolyCraft AI MCP Agent, a highly capable 3D modeling orchestrator.
+          systemInstruction: `You are Eya3D AI MCP Agent, a highly capable 3D modeling orchestrator.
 The user is currently editing an active 3D workspace.
 Active Object Name: "${objectName || "None"}" (ID: ${objectId || "None"})
 
@@ -211,7 +211,7 @@ Always explain what you are doing in French in a helpful, conversational manner.
       return;
     }
 
-    const systemPrompt = `You are PolyCraft AI, an intelligent 3D modeling assistant integrated into PolyCraft 3D Studio.
+    const systemPrompt = `You are Eya3D AI, an intelligent 3D modeling assistant integrated into Eya3D.
 The user is currently editing an active 3D object in their workspace.
 Active Object Name: "${objectName || "None"}" (ID: ${objectId || "None"})
 
@@ -307,8 +307,8 @@ app.post("/api/gemini/generate-script", async (req, res) => {
         })
       : ai;
 
-    const systemInstruction = `You are PolyCraft 3D Script Generator, an intelligent code author specialized in Three.js geometry construction.
-Your task is to write a clean, robust, and optimized JavaScript script to build or deform 3D models inside PolyCraft 3D Studio.
+    const systemInstruction = `You are Eya3D Script Generator, an intelligent code author specialized in Three.js geometry construction.
+Your task is to write a clean, robust, and optimized JavaScript script to build or deform 3D models inside Eya3D.
 
 The generated script will be evaluated as a function with the following variables injected into its scope:
 - 'THREE' (the global Three.js namespace)

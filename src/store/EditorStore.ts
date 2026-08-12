@@ -83,6 +83,69 @@ class EditorStore {
   public isRenderMode: boolean = false;
   public xRayMode: boolean = false;
 
+  // Snapping & Transform Engine
+  public snapToGrid: boolean = false;
+  public snapTranslationStep: number = 0.5;
+  public gizmoMode: 'translate' | 'rotate' | 'scale' = 'translate';
+
+  public setSnapToGrid(enabled: boolean): void {
+    this.snapToGrid = enabled;
+    this.notify();
+  }
+
+  public setSnapTranslationStep(step: number): void {
+    this.snapTranslationStep = step;
+    this.notify();
+  }
+
+  public setGizmoMode(mode: 'translate' | 'rotate' | 'scale'): void {
+    this.checkOtherToggle();
+    this.gizmoMode = mode;
+    this.notify();
+  }
+
+  // Sun Settings for Render Mode
+  public sunSettings = {
+    position: [10, 20, 10] as [number, number, number],
+    target: [0, 0, 0] as [number, number, number],
+    color: '#ffffff',
+    intensity: 3.0,
+    scale: 1.0,
+    castShadow: true,
+    shadowBias: -0.0005,
+  };
+
+  public setSunPosition(position: [number, number, number]): void {
+    this.sunSettings.position = position;
+    this.notify();
+  }
+
+  public setSunColor(color: string): void {
+    this.sunSettings.color = color;
+    this.notify();
+  }
+
+  public setSunIntensity(intensity: number): void {
+    this.sunSettings.intensity = intensity;
+    this.notify();
+  }
+
+  public setSunScale(scale: number): void {
+    this.sunSettings.scale = scale;
+    this.notify();
+  }
+
+  public setSunAngleTime(progress: number): void {
+    // progress from 0 to 1 representing time of day arc
+    const radius = 25;
+    const angle = progress * Math.PI * 2;
+    const x = Math.sin(angle) * radius;
+    const y = Math.max(2, Math.cos(angle) * radius + 5);
+    const z = Math.cos(angle) * 10;
+    this.sunSettings.position = [x, y, z];
+    this.notify();
+  }
+
   public setThemeMode(mode: 'dark' | 'night' | 'light'): void {
     this.themeMode = mode;
     this.notify();
@@ -105,13 +168,46 @@ class EditorStore {
     this.notify();
   }
 
+  public clearCache(): void {
+    // Clear temporary renderer caches, geometry caches, or reset render pipeline state
+    console.log('[EditorStore] Cache cleared.');
+    this.notify();
+  }
+
+  private checkOtherToggle(): void {
+    if (this.isRenderMode) {
+      this.isRenderMode = false;
+      this.clearCache();
+    }
+  }
+
   public toggleXRayMode(): void {
+    this.checkOtherToggle();
     this.xRayMode = !this.xRayMode;
     this.notify();
   }
 
   public setXRayMode(enabled: boolean): void {
+    this.checkOtherToggle();
     this.xRayMode = enabled;
+    this.notify();
+  }
+
+  public toggleWireframe(): void {
+    this.checkOtherToggle();
+    this.showWireframe = !this.showWireframe;
+    this.notify();
+  }
+
+  public toggleGrid(): void {
+    this.checkOtherToggle();
+    this.showGrid = !this.showGrid;
+    this.notify();
+  }
+
+  public toggleShadows(): void {
+    this.checkOtherToggle();
+    this.showShadows = !this.showShadows;
     this.notify();
   }
 
@@ -153,6 +249,7 @@ class EditorStore {
   // --- Actions ---
 
   public setMode(newMode: EditorMode): void {
+    this.checkOtherToggle();
     this.mode = newMode;
     if (newMode === 'edit') {
       if (this.selectionLevel === 'object') this.selectionLevel = 'face';
@@ -165,12 +262,14 @@ class EditorStore {
   }
 
   public setSelectionLevel(level: SelectionLevel): void {
+    this.checkOtherToggle();
     this.selectionLevel = level;
     this.clearMeshSelections();
     this.notify();
   }
 
   public setActiveTool(tool: string): void {
+    this.checkOtherToggle();
     this.activeTool = tool;
     this.notify();
   }

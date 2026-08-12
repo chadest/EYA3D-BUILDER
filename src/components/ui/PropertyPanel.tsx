@@ -23,6 +23,8 @@ import {
   CheckSquare,
   Square,
   Activity,
+  Sun,
+  Grid,
 } from 'lucide-react';
 import * as THREE from 'three';
 import { editorStore } from '../../store/EditorStore';
@@ -132,6 +134,124 @@ export const PropertyPanel: React.FC = () => {
       </div>
 
       {/* 2. TABBED PANEL CONTENT (Objects Outliner | Material | Modifiers) */}
+      {editorStore.isRenderMode && (
+        <div className="p-3 bg-amber-500/10 border-b border-amber-500/30 space-y-2 text-xs">
+          <div className="flex items-center justify-between font-bold text-amber-400">
+            <span className="flex items-center space-x-1.5">
+              <Sun className="w-4 h-4" />
+              <span>Configuration du Soleil (HDRI)</span>
+            </span>
+          </div>
+
+          <div className="space-y-2 bg-[#0F1113] p-2.5 rounded border border-[#2D3139]">
+            {/* Sun Color Picker */}
+            <div className="flex items-center justify-between">
+              <span className="text-[#8E9299]">Couleur du Soleil</span>
+              <input
+                type="color"
+                value={editorStore.sunSettings.color}
+                onChange={e => editorStore.setSunColor(e.target.value)}
+                className="w-7 h-7 rounded cursor-pointer bg-transparent border-0"
+                title="Teinte de la lumière du soleil"
+              />
+            </div>
+
+            {/* Intensity Slider */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-[#8E9299]">
+                <span>Intensité (0 - 10)</span>
+                <span className="font-mono text-amber-400">{editorStore.sunSettings.intensity.toFixed(1)}</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="10"
+                step="0.1"
+                value={editorStore.sunSettings.intensity}
+                onChange={e => editorStore.setSunIntensity(parseFloat(e.target.value))}
+                className="w-full accent-amber-500"
+              />
+            </div>
+
+            {/* Sun Scale / Size Slider */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-[#8E9299]">
+                <span>Taille du Soleil</span>
+                <span className="font-mono text-amber-400">{editorStore.sunSettings.scale.toFixed(1)}x</span>
+              </div>
+              <input
+                type="range"
+                min="0.2"
+                max="3.0"
+                step="0.1"
+                value={editorStore.sunSettings.scale}
+                onChange={e => editorStore.setSunScale(parseFloat(e.target.value))}
+                className="w-full accent-amber-500"
+              />
+            </div>
+
+            {/* Time of Day Arc Slider */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-[#8E9299]">
+                <span>Course du Soleil (Heure)</span>
+                <span className="font-mono text-amber-400">Arc 360°</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                defaultValue="0.25"
+                onChange={e => editorStore.setSunAngleTime(parseFloat(e.target.value))}
+                className="w-full accent-amber-500"
+                title="Simuler la course du soleil autour de la scène"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Snapping & Aimantation Controls */}
+      <div className="p-3 bg-[#1C1E22] border-b border-[#2D3139] space-y-2 text-xs">
+        <div className="flex items-center justify-between font-bold text-white">
+          <span className="flex items-center space-x-1.5">
+            <Grid className="w-3.5 h-3.5 text-[#4A90E2]" />
+            <span>Système d'Aimantation (Snapping)</span>
+          </span>
+          <button
+            onClick={() => editorStore.setSnapToGrid(!editorStore.snapToGrid)}
+            className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-colors ${
+              editorStore.snapToGrid ? 'bg-[#4A90E2] text-white' : 'bg-[#2D3139] text-[#8E9299] hover:text-white'
+            }`}
+          >
+            {editorStore.snapToGrid ? 'ON' : 'OFF'}
+          </button>
+        </div>
+
+        {editorStore.snapToGrid && (
+          <div className="space-y-1 bg-[#0F1113] p-2 rounded border border-[#2D3139]">
+            <div className="flex justify-between text-[#8E9299]">
+              <span>Pas de translation (Grid Step)</span>
+              <span className="font-mono text-[#4A90E2]">{editorStore.snapTranslationStep}m</span>
+            </div>
+            <div className="flex space-x-1">
+              {[0.1, 0.25, 0.5, 1.0, 2.0].map(step => (
+                <button
+                  key={step}
+                  onClick={() => editorStore.setSnapTranslationStep(step)}
+                  className={`flex-1 py-1 rounded text-[10px] font-mono transition-colors ${
+                    editorStore.snapTranslationStep === step
+                      ? 'bg-[#4A90E2] text-white font-bold'
+                      : 'bg-[#1C1E22] text-[#8E9299] hover:text-white'
+                  }`}
+                >
+                  {step}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
       <div className="flex items-center border-b border-[#2D3139] bg-[#1C1E22] text-xs font-semibold">
         <button
           onClick={() => setActiveTab('scene')}

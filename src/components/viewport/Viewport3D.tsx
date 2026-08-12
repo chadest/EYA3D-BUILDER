@@ -26,6 +26,7 @@ import {
 } from '../../core/primitives/interactivePrimitives';
 import { Trash2, Camera } from 'lucide-react';
 import { InteractivePrimitivePopup } from '../ui/InteractivePrimitivePopup';
+import { TransformToolbar } from '../ui/TransformToolbar';
 import { RealisticRenderPipeline } from '../../core/rendering/renderPipeline';
 
 // 1. Interactive 3D Coordinate Axis Orientation Gizmo (Matching User Screenshot)
@@ -84,7 +85,7 @@ const ViewOrientationGizmo: React.FC<ViewOrientationGizmoProps> = ({ cameraRef, 
   nodes.sort((a, b) => a.z - b.z);
 
   return (
-    <div className="absolute top-4 left-4 z-20 select-none pointer-events-auto bg-[#16181C]/40 backdrop-blur-sm p-2 rounded-2xl border border-[#2D3139]/50 shadow-2xl">
+    <div className="select-none pointer-events-auto bg-[#16181C]/40 backdrop-blur-sm p-2 rounded-2xl border border-[#2D3139]/50 shadow-2xl">
       <svg className="w-28 h-28 overflow-visible" viewBox="0 0 120 120">
         {/* Lines from center to positive axis heads */}
         {nodes.map(node => {
@@ -189,6 +190,8 @@ export const Viewport3D: React.FC = () => {
   const latticeWireframeRef = useRef<THREE.LineSegments | null>(null);
   const renderPipelineRef = useRef<RealisticRenderPipeline | null>(null);
   const xRayWireframeMapRef = useRef<Map<string, THREE.LineSegments>>(new Map());
+  const interactiveSunRef = useRef<THREE.DirectionalLight | null>(null);
+  const sunGizmoMeshRef = useRef<THREE.Mesh | null>(null);
 
   const isSculptingRef = useRef<boolean>(false);
   const isShiftPressedRef = useRef<boolean>(false);
@@ -335,7 +338,7 @@ export const Viewport3D: React.FC = () => {
   };
 
   useEffect(() => {
-    // Keyboard Shortcuts for Undo/Redo and Shift Invert
+    // Keyboard Shortcuts for Undo/Redo, Shift Invert, and Blender Transform Shortcuts (G, R, S, X, Y, Z)
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Shift') {
         isShiftPressedRef.current = true;
@@ -353,6 +356,21 @@ export const Viewport3D: React.FC = () => {
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
         e.preventDefault();
         editorStore.redoGeometry();
+      } else if (!e.ctrlKey && !e.metaKey && !e.altKey && document.activeElement?.tagName !== 'INPUT') {
+        const key = e.key.toLowerCase();
+        if (key === 'g' && transformRef.current) {
+          transformRef.current.setMode('translate');
+        } else if (key === 'r' && transformRef.current) {
+          transformRef.current.setMode('rotate');
+        } else if (key === 's' && transformRef.current) {
+          transformRef.current.setMode('scale');
+        } else if (key === 'x' && transformRef.current) {
+          transformRef.current.showX = !transformRef.current.showX;
+        } else if (key === 'y' && transformRef.current) {
+          transformRef.current.showY = !transformRef.current.showY;
+        } else if (key === 'z' && transformRef.current) {
+          transformRef.current.showZ = !transformRef.current.showZ;
+        }
       }
     };
 
@@ -402,15 +420,36 @@ export const Viewport3D: React.FC = () => {
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
     scene.add(ambientLight);
 
-    const dirLight1 = new THREE.DirectionalLight(0xffffff, 1.2);
-    dirLight1.position.set(8, 12, 8);
-    dirLight1.castShadow = true;
-    dirLight1.shadow.mapSize.width = 2048;
-    dirLight1.shadow.mapSize.height = 2048;
-    dirLight1.shadow.bias = -0.0001;
-    scene.add(dirLight1);
+    // Interactive Sun & Emissive Physical Mesh (Directional Light + Glowing Sphere)
+    const sunSettings = editorStore.sunSettings;
+    const sunLight = new THREE.DirectionalLight(sunSettings.color, sunSettings.intensity);
+    sunLight.position.set(...sunSettings.position);
+    sunLight.target.position.set(...sunSettings.target);
+    sunLight.castShadow = sunSettings.castShadow;
+    sunLight.shadow.mapSize.width = 2048;
+    sunLight.shadow.mapSize.height = 2048;
+    sunLight.shadow.bias = sunSettings.shadowBias;
+    scene.add(sunLight);
+    scene.add(sunLight.target);
+    interactiveSunRef.current = sunLight;
 
-    const dirLight2 = new THREE.DirectionalLight(0x4a90e2, 0.5);
+    // Physical Sun Mesh with Emissive Material for Real Bloom Glow
+    const sunGeo = new THREE.SphereGeometry(0.8, 32, 32);
+    const sunMat = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(sunSettings.color),
+      emissive: new THREE.Color(sunSettings.color),
+      emissiveIntensity: 5.0,
+      roughness: 0.1,
+      metalness: 0.1,
+    });
+    const sunMesh = new THREE.Mesh(sunGeo, sunMat);
+    sunMesh.position.set(...sunSettings.position);
+    sunMesh.scale.setScalar(sunSettings.scale);
+    sunMesh.name = 'InteractiveSunMesh';
+    scene.add(sunMesh);
+    sunGizmoMeshRef.current = sunMesh;
+
+    const dirLight2 = new THREE.DirectionalLight(0x4a90e2, 0.3);
     dirLight2.position.set(-8, -6, -8);
     scene.add(dirLight2);
 
@@ -439,6 +478,12 @@ export const Viewport3D: React.FC = () => {
     // Disable OrbitControls when dragging transform gizmo
     transformControls.addEventListener('dragging-changed', event => {
       controls.enabled = !event.value;
+    });
+    transformControls.addEventListener('mouseDown', () => {
+      controls.enabled = false;
+    });
+    transformControls.addEventListener('mouseUp', () => {
+      controls.enabled = true;
     });
 
     // 8. SCULPT GIZMO & HELPER GROUPS
@@ -474,7 +519,24 @@ export const Viewport3D: React.FC = () => {
     const animate = () => {
       animationFrameId = requestAnimationFrame(animate);
 
-      controls.update();
+      // Sync sun light position with physical sun mesh position
+      if (sunGizmoMeshRef.current && interactiveSunRef.current) {
+        interactiveSunRef.current.position.copy(sunGizmoMeshRef.current.position);
+        // Update store position if dragged
+        const curPos = editorStore.sunSettings.position;
+        const newPos: [number, number, number] = [
+          sunGizmoMeshRef.current.position.x,
+          sunGizmoMeshRef.current.position.y,
+          sunGizmoMeshRef.current.position.z,
+        ];
+        if (
+          Math.abs(curPos[0] - newPos[0]) > 0.001 ||
+          Math.abs(curPos[1] - newPos[1]) > 0.001 ||
+          Math.abs(curPos[2] - newPos[2]) > 0.001
+        ) {
+          editorStore.setSunPosition(newPos);
+        }
+      }
 
       // Sync scene meshes with store objects and handle X-Ray / Transparent Wireframe Mode (Edition Mode Only)
       const isXRayActive = editorStore.xRayMode && editorStore.mode === 'edit';
@@ -527,7 +589,11 @@ export const Viewport3D: React.FC = () => {
         }
       });
 
-      // Sync selection gizmos
+      // Sync selection gizmos & gizmo mode
+      if (transformControls.mode !== editorStore.gizmoMode) {
+        transformControls.setMode(editorStore.gizmoMode);
+      }
+
       const selObj = editorStore.getSelectedObject();
       if (selObj && selObj.mesh && editorStore.mode === 'object') {
         if (transformControls.object !== selObj.mesh) {
@@ -629,6 +695,31 @@ export const Viewport3D: React.FC = () => {
       }
     }
   }, [editorStore.themeMode]);
+
+  // Sync Interactive Sun and Gizmo visibility with store settings and render mode
+  useEffect(() => {
+    if (interactiveSunRef.current) {
+      interactiveSunRef.current.color.set(editorStore.sunSettings.color);
+      interactiveSunRef.current.intensity = editorStore.sunSettings.intensity;
+      interactiveSunRef.current.position.set(...editorStore.sunSettings.position);
+      interactiveSunRef.current.castShadow = editorStore.sunSettings.castShadow;
+      interactiveSunRef.current.shadow.bias = editorStore.sunSettings.shadowBias;
+    }
+    if (sunGizmoMeshRef.current) {
+      sunGizmoMeshRef.current.position.set(...editorStore.sunSettings.position);
+      sunGizmoMeshRef.current.scale.setScalar(editorStore.sunSettings.scale);
+      // In render mode, the physical sun mesh remains visible in the sky/scene, but gizmo is hidden or not transformable
+      sunGizmoMeshRef.current.visible = true; // Physical solid sun is always visible in scene
+
+      const sunMat = sunGizmoMeshRef.current.material as THREE.MeshStandardMaterial;
+      if (sunMat && sunMat.color && sunMat.emissive) {
+        sunMat.color.set(editorStore.sunSettings.color);
+        sunMat.emissive.set(editorStore.sunSettings.color);
+        sunMat.emissiveIntensity = 5.0;
+        sunMat.needsUpdate = true;
+      }
+    }
+  }, [editorStore.sunSettings, editorStore.isRenderMode]);
 
   // Raycasting Mouse Interaction Handler for Selection & Sculpting
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -776,6 +867,10 @@ export const Viewport3D: React.FC = () => {
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return; // Left click only
+
+    if (transformRef.current && (transformRef.current as any).axis) {
+      return; // Clicking on transform gizmo, do not raycast or select underlying objects
+    }
 
     // --- Interactive Primitive Drawing Trigger ---
     if (editorStore.isInteractiveDrawingMode) {
@@ -982,8 +1077,11 @@ export const Viewport3D: React.FC = () => {
       onPointerUp={handlePointerUp}
       className="flex-1 w-full h-full relative cursor-crosshair bg-[#0B0D10] overflow-hidden select-none"
     >
-      {/* 1. Interactive 3D Coordinate Axis Orientation Gizmo (Top Left) */}
-      <ViewOrientationGizmo cameraRef={cameraRef} onSnap={snapCamera} />
+      {/* Top Left Floating Widgets (Orientation Gizmo & Transform Toolbar) */}
+      <div className="absolute top-4 left-4 z-20 flex flex-col items-center gap-[14px] select-none pointer-events-auto">
+        <ViewOrientationGizmo cameraRef={cameraRef} onSnap={snapCamera} />
+        <TransformToolbar />
+      </div>
 
       {/* 2. SelfCAD Bottom-Left Position & Size Floating Inputs */}
       {selObj && selObj.mesh && (

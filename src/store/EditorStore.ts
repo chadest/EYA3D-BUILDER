@@ -81,6 +81,7 @@ class EditorStore {
   public flatShading: boolean = false;
   public themeMode: 'dark' | 'night' | 'light' = 'dark';
   public isRenderMode: boolean = false;
+  public xRayMode: boolean = false;
 
   public setThemeMode(mode: 'dark' | 'night' | 'light'): void {
     this.themeMode = mode;
@@ -101,6 +102,16 @@ class EditorStore {
 
   public setRenderMode(enabled: boolean): void {
     this.isRenderMode = enabled;
+    this.notify();
+  }
+
+  public toggleXRayMode(): void {
+    this.xRayMode = !this.xRayMode;
+    this.notify();
+  }
+
+  public setXRayMode(enabled: boolean): void {
+    this.xRayMode = enabled;
     this.notify();
   }
 

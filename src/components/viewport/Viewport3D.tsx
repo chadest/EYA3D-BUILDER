@@ -188,6 +188,7 @@ export const Viewport3D: React.FC = () => {
   const selectionGizmoRef = useRef<THREE.Group>(new THREE.Group());
   const latticeWireframeRef = useRef<THREE.LineSegments | null>(null);
   const renderPipelineRef = useRef<RealisticRenderPipeline | null>(null);
+  const xRayWireframeMapRef = useRef<Map<string, THREE.LineSegments>>(new Map());
 
   const isSculptingRef = useRef<boolean>(false);
   const isShiftPressedRef = useRef<boolean>(false);
@@ -475,10 +476,54 @@ export const Viewport3D: React.FC = () => {
 
       controls.update();
 
-      // Sync scene meshes with store objects
+      // Sync scene meshes with store objects and handle X-Ray / Transparent Wireframe Mode (Edition Mode Only)
+      const isXRayActive = editorStore.xRayMode && editorStore.mode === 'edit';
+
       editorStore.objects.forEach(obj => {
-        if (obj.mesh && !scene.children.includes(obj.mesh)) {
-          scene.add(obj.mesh);
+        if (obj.mesh) {
+          if (!scene.children.includes(obj.mesh)) {
+            scene.add(obj.mesh);
+          }
+
+          const mat = obj.mesh.material;
+          const materials = Array.isArray(mat) ? mat : [mat];
+
+          materials.forEach(m => {
+            if (isXRayActive) {
+              m.transparent = true;
+              m.opacity = 0.4;
+              m.depthWrite = false;
+              m.needsUpdate = true;
+            } else {
+              m.transparent = false;
+              m.opacity = 1.0;
+              m.depthWrite = true;
+              m.needsUpdate = true;
+            }
+          });
+
+          // Manage X-Ray Wireframe Overlay
+          let wireframeOverlay = xRayWireframeMapRef.current.get(obj.id);
+          if (isXRayActive) {
+            if (!wireframeOverlay) {
+              const wireGeom = new THREE.WireframeGeometry(obj.mesh.geometry);
+              const wireMat = new THREE.LineBasicMaterial({
+                color: 0x38bdf8, // Neon sky blue contrast
+                linewidth: 1.5,
+                transparent: true,
+                opacity: 0.8,
+              });
+              wireframeOverlay = new THREE.LineSegments(wireGeom, wireMat);
+              obj.mesh.add(wireframeOverlay);
+              xRayWireframeMapRef.current.set(obj.id, wireframeOverlay);
+            } else {
+              wireframeOverlay.visible = true;
+            }
+          } else {
+            if (wireframeOverlay) {
+              wireframeOverlay.visible = false;
+            }
+          }
         }
       });
 
@@ -825,7 +870,7 @@ export const Viewport3D: React.FC = () => {
         editorStore.pushGeometryState(selObj.id);
       }
     } else if (editorStore.mode === 'object' || editorStore.mode === 'edit') {
-      // Raycast Object / Face Selection
+      // Raycast Object / Face Selection with X-Ray Multi-Hit Support
       if (!sceneRef.current || !cameraRef.current || !containerRef.current) return;
 
       const rect = containerRef.current.getBoundingClientRect();
@@ -841,7 +886,9 @@ export const Viewport3D: React.FC = () => {
       const intersects = raycaster.intersectObjects(meshes);
 
       if (intersects.length > 0) {
-        const hit = intersects[0];
+        // If X-Ray mode is active in Edit mode, allow cycling or picking deeper faces/vertices
+        const hitIndex = (editorStore.xRayMode && editorStore.mode === 'edit' && intersects.length > 1) ? 1 : 0;
+        const hit = intersects[Math.min(hitIndex, intersects.length - 1)];
         const hitObject = editorStore.objects.find(o => o.mesh === hit.object);
 
         if (hitObject) {

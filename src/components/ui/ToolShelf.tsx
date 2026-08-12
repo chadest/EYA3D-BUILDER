@@ -243,6 +243,31 @@ export const ToolShelf: React.FC = () => {
             {editorStore.isRenderMode ? 'ON' : 'OFF'}
           </span>
         </button>
+
+        {/* X-Ray / Transparent Wireframe Mode Toggle (Edition Mode Only) */}
+        <button
+          onClick={() => editorStore.toggleXRayMode()}
+          className={`flex items-center space-x-1.5 px-2.5 py-1 rounded text-xs font-bold transition-all cursor-pointer ${
+            editorStore.xRayMode
+              ? 'bg-gradient-to-r from-sky-500 to-blue-600 text-white shadow-md shadow-sky-500/20 border border-sky-400 font-bold'
+              : 'text-[#8E9299] hover:text-white hover:bg-[#2D3139]'
+          }`}
+          title={
+            editorStore.xRayMode
+              ? 'Mode X-Ray Actif (Cliquer pour désactiver)'
+              : 'Activer le Filaire Transparent X-Ray (Voir et sélectionner à travers les volumes en Édition)'
+          }
+        >
+          <BoxSelect className={`w-3.5 h-3.5 ${editorStore.xRayMode ? 'text-white' : 'text-sky-400'}`} />
+          <span className="text-[11px] font-bold">X-Ray</span>
+          <span
+            className={`text-[9px] px-1 py-0.2 rounded uppercase font-black ${
+              editorStore.xRayMode ? 'bg-slate-950 text-sky-400' : 'bg-[#2D3139] text-[#8E9299]'
+            }`}
+          >
+            {editorStore.xRayMode ? 'ON' : 'OFF'}
+          </span>
+        </button>
       </div>
 
       {/* 1. OBJECT MODE TOOLBAR */}

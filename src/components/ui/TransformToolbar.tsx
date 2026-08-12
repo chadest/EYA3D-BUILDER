@@ -1,9 +1,10 @@
 import React, { useEffect } from 'react';
-import { Move, RotateCw, Maximize2 } from 'lucide-react';
+import { Move, RotateCw, Maximize2, BoxSelect } from 'lucide-react';
 import { editorStore } from '../../store/EditorStore';
 
 export const TransformToolbar: React.FC = () => {
   const gizmoMode = editorStore.gizmoMode;
+  const isLassoModeActive = editorStore.isLassoModeActive;
   const [, setForceUpdate] = React.useState({});
 
   useEffect(() => {
@@ -26,6 +27,8 @@ export const TransformToolbar: React.FC = () => {
           editorStore.setGizmoMode('rotate');
         } else if (key === 's') {
           editorStore.setGizmoMode('scale');
+        } else if (key === 'l') {
+          editorStore.setLassoModeActive(!editorStore.isLassoModeActive);
         }
       }
     };
@@ -70,6 +73,18 @@ export const TransformToolbar: React.FC = () => {
         }`}
       >
         <Maximize2 size={18} />
+      </button>
+
+      <button
+        onClick={() => editorStore.setLassoModeActive(!editorStore.isLassoModeActive)}
+        title="Sélection par Lasso / Boîte (L)"
+        className={`p-2 rounded-lg transition-all duration-200 flex items-center justify-center ${
+          isLassoModeActive
+            ? 'bg-amber-600 text-white shadow-lg shadow-amber-500/30 font-semibold'
+            : 'text-slate-400 hover:text-white hover:bg-white/10'
+        }`}
+      >
+        <BoxSelect size={18} />
       </button>
     </div>
   );

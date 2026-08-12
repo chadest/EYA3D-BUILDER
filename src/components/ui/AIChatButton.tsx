@@ -28,6 +28,9 @@ export function AIChatButton() {
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   const selObj = editorStore.getSelectedObject();
+  const [mcpSocketStatus, setMcpSocketStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
+  const socketRef = useRef<WebSocket | null>(null);
+  const sseRef = useRef<EventSource | null>(null);
 
   // Scroll to bottom of chat when new messages arrive
   useEffect(() => {
@@ -42,6 +45,188 @@ export function AIChatButton() {
       setIsOpen(false);
     }
   }, [selObj]);
+
+  // Connect to the local MCP server over SSE or WebSocket when Agent Mode is enabled
+  useEffect(() => {
+    if (!editorStore.mcpAgentModeEnabled) {
+      if (socketRef.current) {
+        socketRef.current.close();
+        socketRef.current = null;
+      }
+      if (sseRef.current) {
+        sseRef.current.close();
+        sseRef.current = null;
+      }
+      setMcpSocketStatus('disconnected');
+      return;
+    }
+
+    const mcpUrl = editorStore.mcpServerUrl || 'http://localhost:3001/mcp';
+    setMcpSocketStatus('connecting');
+
+    const handleIncomingMcpMessage = async (dataStr: string) => {
+      try {
+        const payload = JSON.parse(dataStr);
+        console.log("[MCP Client] Message reçu du serveur local:", payload);
+
+        let toolName = "";
+        let toolArgs: any = null;
+        let requestId: any = null;
+
+        // Support both JSON-RPC tool calling and direct actions
+        if (payload.method === 'tools/call' || payload.method === 'call_tool') {
+          toolName = payload.params?.name;
+          toolArgs = payload.params?.arguments;
+          requestId = payload.id;
+        } else if (payload.action) {
+          toolName = payload.action;
+          toolArgs = payload;
+          requestId = payload.id;
+        }
+
+        if (toolName) {
+          console.log(`[MCP Client] Interception de la commande : ${toolName}`, toolArgs);
+          
+          setMessages(prev => [
+            ...prev,
+            { sender: 'ai', text: `🔌 [MCP Local] Commande reçue : "${toolName}" sur l'objet...` }
+          ]);
+
+          // Execute modeling action on Three.js geometry/material via our handler
+          const actionResult = await editorStore.handleAgentAction(toolName, toolArgs);
+          
+          // Target object ID to force instant graphic updates
+          const targetId = toolArgs.targetObjectId || selObj?.id;
+          if (targetId) {
+            editorStore.forceAgentRefresh(targetId);
+          }
+
+          // Generate success/feedback packet for the MCP server
+          const ackMsg = {
+            jsonrpc: "2.0",
+            id: requestId || "ack",
+            result: {
+              status: "success",
+              message: `Action '${toolName}' appliquée avec succès dans la scène PolyCraft.`,
+              data: actionResult
+            }
+          };
+
+          // Send positive acknowledgment back to close the loop
+          if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+            socketRef.current.send(JSON.stringify(ackMsg));
+            console.log("[MCP Client] Envoyé réponse positive au serveur (WS):", ackMsg);
+          } else {
+            try {
+              await fetch(`${mcpUrl}/response`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(ackMsg)
+              });
+              console.log("[MCP Client] Envoyé réponse positive via POST (SSE):", ackMsg);
+            } catch (err) {
+              console.warn("[MCP Client] Impossible d'envoyer la réponse de retour (SSE) :", err);
+            }
+          }
+
+          setMessages(prev => [
+            ...prev,
+            { sender: 'ai', text: `✅ [MCP Local] "${toolName}" appliqué et rafraîchi sous vos yeux.` }
+          ]);
+        }
+      } catch (err) {
+        console.error("[MCP Client] Erreur lors du parsing du message MCP:", err);
+      }
+    };
+
+    if (mcpUrl.startsWith('ws://') || mcpUrl.startsWith('wss://')) {
+      const socket = new WebSocket(mcpUrl);
+      socketRef.current = socket;
+
+      socket.onopen = () => {
+        console.log("[MCP Client] WebSocket connecté à", mcpUrl);
+        setMcpSocketStatus('connected');
+        
+        // Push initial scene graph state so the local agent can discover the inspectable names
+        const sceneContext = {
+          type: "scene_state",
+          event: "scene_initialized",
+          objects: editorStore.objects.map(o => ({
+            id: o.id,
+            name: o.name,
+            visible: o.visible,
+            wireframe: o.wireframe,
+            materialProps: o.materialProps
+          })),
+          selectedObjectId: editorStore.selectedObjectId
+        };
+        socket.send(JSON.stringify(sceneContext));
+      };
+
+      socket.onmessage = (event) => {
+        handleIncomingMcpMessage(event.data);
+      };
+
+      socket.onerror = (err) => {
+        console.warn("[MCP Client] Erreur WebSocket local:", err);
+        setMcpSocketStatus('disconnected');
+      };
+
+      socket.onclose = () => {
+        console.log("[MCP Client] WebSocket déconnecté.");
+        setMcpSocketStatus('disconnected');
+      };
+    } else {
+      // Standard SSE (EventSource) client
+      try {
+        const eventSource = new EventSource(`${mcpUrl}/sse`);
+        sseRef.current = eventSource;
+
+        eventSource.onopen = () => {
+          console.log("[MCP Client] SSE connecté à", mcpUrl);
+          setMcpSocketStatus('connected');
+          
+          // Push initial scene state
+          fetch(mcpUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: "scene_state",
+              objects: editorStore.objects.map(o => ({
+                id: o.id,
+                name: o.name,
+                visible: o.visible,
+                wireframe: o.wireframe,
+                materialProps: o.materialProps
+              }))
+            })
+          }).catch(err => console.warn("[MCP Client] Échec d'envoi de l'état initial SSE :", err));
+        };
+
+        eventSource.onmessage = (event) => {
+          handleIncomingMcpMessage(event.data);
+        };
+
+        eventSource.onerror = (err) => {
+          console.warn("[MCP Client] Perte de connexion SSE, reconnexion automatique...", err);
+        };
+      } catch (err) {
+        console.warn("[MCP Client] Échec d'initialisation SSE:", err);
+        setMcpSocketStatus('disconnected');
+      }
+    }
+
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.close();
+        socketRef.current = null;
+      }
+      if (sseRef.current) {
+        sseRef.current.close();
+        sseRef.current = null;
+      }
+    };
+  }, [editorStore.mcpAgentModeEnabled, editorStore.mcpServerUrl, editorStore.objects, editorStore.selectedObjectId]);
 
   if (!selObj) return null;
 
@@ -90,6 +275,47 @@ export function AIChatButton() {
             text: data.message || "Opération terminée avec succès.",
             actionApplied: data.action !== 'unknown' ? data.action : undefined
           }
+        ]);
+        setIsSending(false);
+        return;
+      }
+
+      // If MCP is enabled AND we are connected to the local server, transmit directly to it
+      if (mcpSocketStatus === 'connected') {
+        const mcpRequest = {
+          jsonrpc: "2.0",
+          method: "chat/message",
+          params: {
+            message: userPrompt,
+            sceneState: {
+              objects: editorStore.objects.map(o => ({
+                id: o.id,
+                name: o.name,
+                visible: o.visible,
+                wireframe: o.wireframe,
+                materialProps: o.materialProps
+              })),
+              selectedObjectId: selObj.id
+            }
+          }
+        };
+
+        if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+          socketRef.current.send(JSON.stringify(mcpRequest));
+          console.log("[MCP Client] Envoyé message utilisateur au serveur local (WS):", mcpRequest);
+        } else {
+          const mcpUrl = editorStore.mcpServerUrl || 'http://localhost:3001/mcp';
+          await fetch(mcpUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(mcpRequest)
+          });
+          console.log("[MCP Client] Envoyé message utilisateur au serveur local via POST (SSE):", mcpRequest);
+        }
+
+        setMessages(prev => [
+          ...prev,
+          { sender: 'ai', text: "📡 Message transmis au serveur MCP local. En attente de l'agent..." }
         ]);
         setIsSending(false);
         return;
@@ -165,18 +391,23 @@ export function AIChatButton() {
           // Register model tool calls in chat history
           currentHistory.push({
             role: 'model',
-            parts: [{ functionCalls }]
+            parts: functionCalls.map((c: any) => ({
+              functionCall: {
+                name: c.name,
+                args: c.args
+              }
+            }))
           });
 
           // Register tool execution responses in chat history
           currentHistory.push({
             role: 'user',
-            parts: [{
-              functionResponses: functionCalls.map((c: any, index: number) => ({
+            parts: functionCalls.map((c: any, index: number) => ({
+              functionResponse: {
                 name: c.name,
                 response: results[index]
-              }))
-            }]
+              }
+            }))
           });
 
           // Loop back to Gemini with the feedback responses to proceed
@@ -240,6 +471,24 @@ export function AIChatButton() {
                 <span className="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.2 rounded font-bold">
                   Ancré
                 </span>
+                {editorStore.mcpAgentModeEnabled && (
+                  <span className={`flex items-center gap-1 text-[9px] px-1.5 py-0.2 rounded font-bold ${
+                    mcpSocketStatus === 'connected'
+                      ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                      : mcpSocketStatus === 'connecting'
+                      ? 'bg-amber-50 text-amber-600 border border-amber-100'
+                      : 'bg-slate-100 text-slate-500 border border-slate-200'
+                  }`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${
+                      mcpSocketStatus === 'connected'
+                        ? 'bg-emerald-500 animate-pulse'
+                        : mcpSocketStatus === 'connecting'
+                        ? 'bg-amber-500 animate-pulse'
+                        : 'bg-slate-400'
+                    }`} />
+                    MCP {mcpSocketStatus === 'connected' ? 'En ligne' : mcpSocketStatus === 'connecting' ? 'Connexion...' : 'Hors ligne'}
+                  </span>
+                )}
               </div>
             </div>
             

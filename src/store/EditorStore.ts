@@ -88,14 +88,20 @@ class EditorStore {
   public isRenderMode: boolean = false;
   public xRayMode: boolean = false;
   public isPropertyPanelOpen: boolean = true;
+  public isLassoModeActive: boolean = false;
   public activeMainTab: 'preview' | 'code' = 'preview';
   public activeThreeScene: THREE.Scene | null = null;
   public activeThreeCamera: THREE.PerspectiveCamera | null = null;
   public activeThreeRenderer: THREE.WebGLRenderer | null = null;
 
+  public setLassoModeActive(active: boolean): void {
+    this.isLassoModeActive = active;
+    this.notify();
+  }
+
   // MCP Agent Config
   public mcpAgentModeEnabled: boolean = false;
-  public mcpServerUrl: string = 'http://localhost:3001/mcp';
+  public mcpServerUrl: string = 'ws://localhost:9222';
   public mcpApiKey: string = '';
 
   public setMcpAgentModeEnabled(enabled: boolean): void {
@@ -686,6 +692,64 @@ class EditorStore {
         }
         this.notify();
         return { status: 'success', message: `Transformation ${type} appliquée sur l'objet ${obj.name} avec les valeurs [${values.join(', ')}] avec succès.` };
+      }
+
+      if (toolName === 'update_object') {
+        const { targetObjectId, property, value } = args;
+        const obj = this.objects.find(o => o.id === targetObjectId);
+        if (!obj || !obj.mesh) {
+          throw new Error(`Objet cible introuvable: ${targetObjectId}`);
+        }
+        if (property === 'position') {
+          obj.mesh.position.set(value[0], value[1], value[2]);
+        } else if (property === 'rotation') {
+          obj.mesh.rotation.set(value[0], value[1], value[2]);
+        } else if (property === 'scale') {
+          obj.mesh.scale.set(value[0], value[1], value[2]);
+        } else if (property === 'visible') {
+          obj.mesh.visible = value[0] !== 0;
+        } else {
+          throw new Error(`Propriété d'objet non supportée: ${property}. Choisissez parmi: 'position', 'rotation', 'scale', 'visible'.`);
+        }
+        this.notify();
+        return { status: 'success', message: `Propriété '${property}' de l'objet ${obj.name} mise à jour avec succès.` };
+      }
+
+      if (toolName === 'set_material_property') {
+        const { targetObjectId, property, value } = args;
+        const obj = this.objects.find(o => o.id === targetObjectId);
+        if (!obj || !obj.mesh) {
+          throw new Error(`Objet cible introuvable: ${targetObjectId}`);
+        }
+        
+        // Handle single material or array of materials
+        const materials = Array.isArray(obj.mesh.material) ? obj.mesh.material : [obj.mesh.material];
+        
+        for (const mat of materials) {
+          if (!mat) continue;
+          
+          if (property === 'color') {
+            if (typeof value === 'string') {
+              (mat as any).color.set(value);
+            } else if (typeof value === 'number') {
+              (mat as any).color.setHex(value);
+            }
+          } else if (property === 'roughness') {
+            (mat as any).roughness = parseFloat(value);
+          } else if (property === 'metalness') {
+            (mat as any).metalness = parseFloat(value);
+          } else if (property === 'opacity') {
+            (mat as any).opacity = parseFloat(value);
+            (mat as any).transparent = parseFloat(value) < 1.0;
+          } else if (property === 'wireframe') {
+            (mat as any).wireframe = value === 'true' || value === true;
+          } else {
+            throw new Error(`Propriété de matériau non supportée: ${property}. Choisissez parmi: 'color', 'roughness', 'metalness', 'opacity', 'wireframe'.`);
+          }
+        }
+        
+        this.notify();
+        return { status: 'success', message: `Propriété de matériau '${property}' de l'objet ${obj.name} modifiée avec succès.` };
       }
 
       throw new Error(`Outil non reconnu : ${toolName}`);

@@ -359,12 +359,12 @@ export const HeaderBar: React.FC = () => {
 
                   {/* LLM API KEY Input */}
                   <div className="space-y-1.5">
-                    <label className="text-[10px] text-slate-400 font-sans block">Clé API LLM (Anthropic / OpenAI)</label>
+                    <label className="text-[10px] text-slate-400 font-sans block">Clé API LLM (Google Gemini / Custom)</label>
                     <input
                       type="password"
                       value={editorStore.mcpApiKey}
                       onChange={e => editorStore.setMcpApiKey(e.target.value)}
-                      placeholder="sk-or-ant-api-key-here..."
+                      placeholder="Défaut (Gemini API Key active)..."
                       className="w-full bg-[#0F1113] border border-[#2D3139] rounded px-2.5 py-1.5 text-white font-mono text-[11px] focus:outline-none focus:border-blue-500/50 transition-colors"
                     />
                   </div>

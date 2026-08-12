@@ -8,6 +8,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
+import { SelectionBox } from 'three/examples/jsm/interactive/SelectionBox.js';
+import { SelectionHelper } from 'three/examples/jsm/interactive/SelectionHelper.js';
 import { editorStore } from '../../store/EditorStore';
 import { createSculptGizmo } from '../../core/sculpting/sculptBrush';
 import { sculptingEngine, SculptingBrushConfig } from '../../core/sculpting/sculptEngine';
@@ -257,6 +259,7 @@ export const Viewport3D: React.FC = () => {
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
+  const orbitRef = controlsRef;
   const transformRef = useRef<TransformControls | null>(null);
 
   // Visual Helper Objects
@@ -285,6 +288,11 @@ export const Viewport3D: React.FC = () => {
   const [helperTrigger, setHelperTrigger] = useState(0);
   const [hoveredFaceIndex, setHoveredFaceIndex] = useState<number | null>(null);
   const [, setTick] = useState(0);
+
+  // Lasso / Box Selection State
+  const [lassoStart, setLassoStart] = useState<{ x: number; y: number } | null>(null);
+  const [lassoCurrent, setLassoCurrent] = useState<{ x: number; y: number } | null>(null);
+  const isLassoDraggingRef = useRef<boolean>(false);
 
   // Interactive Primitive Drawing References
   const previewMeshRef = useRef<THREE.Mesh | null>(null);
@@ -1163,6 +1171,26 @@ export const Viewport3D: React.FC = () => {
       controls.enabled = true;
     });
 
+    // Capture phase event listener on the canvas to instantly disable OrbitControls/orbitRef when clicking on the transform gizmo arrows
+    const onGizmoPointerDown = (e: PointerEvent) => {
+      if (transformControls && (transformControls as any).axis) {
+        controls.enabled = false;
+        if (orbitRef.current) {
+          orbitRef.current.enabled = false;
+        }
+      }
+    };
+
+    const onGizmoPointerUp = () => {
+      controls.enabled = true;
+      if (orbitRef.current) {
+        orbitRef.current.enabled = true;
+      }
+    };
+
+    renderer.domElement.addEventListener('pointerdown', onGizmoPointerDown, { capture: true });
+    renderer.domElement.addEventListener('pointerup', onGizmoPointerUp, { capture: true });
+
     // 8. SCULPT GIZMO & HELPER GROUPS
     const sculptGizmo = createSculptGizmo();
     scene.add(sculptGizmo);
@@ -1356,6 +1384,8 @@ export const Viewport3D: React.FC = () => {
       cancelAnimationFrame(animationFrameId);
       window.removeEventListener('resize', handleResize);
       if (rendererRef.current && rendererRef.current.domElement) {
+        rendererRef.current.domElement.removeEventListener('pointerdown', onGizmoPointerDown, { capture: true });
+        rendererRef.current.domElement.removeEventListener('pointerup', onGizmoPointerUp, { capture: true });
         rendererRef.current.domElement.remove();
       }
       editorStore.activeThreeScene = null;
@@ -1406,6 +1436,14 @@ export const Viewport3D: React.FC = () => {
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (editorStore.isRenderMode) return;
     if (!containerRef.current || !sceneRef.current || !cameraRef.current) return;
+
+    if (editorStore.isLassoModeActive && isLassoDraggingRef.current && lassoStart) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      setLassoCurrent({ x, y });
+      return;
+    }
 
     // --- Interactive Primitive Drawing Real-time Updates ---
     if (
@@ -1573,8 +1611,164 @@ export const Viewport3D: React.FC = () => {
     }
   };
 
+  // Disable OrbitControls rotation/movement completely when Lasso Mode is Active
+  useEffect(() => {
+    if (!controlsRef.current) return;
+    if (editorStore.isLassoModeActive) {
+      controlsRef.current.enabled = false;
+    } else {
+      controlsRef.current.enabled = true;
+    }
+  }, [editorStore.isLassoModeActive]);
+
+  const performSelectionBoxSelect = (minX: number, maxX: number, minY: number, maxY: number) => {
+    if (!cameraRef.current || !sceneRef.current || !containerRef.current) return;
+
+    if (editorStore.mode === 'object') {
+      const rect = containerRef.current.getBoundingClientRect();
+      const selectionBox = new SelectionBox(cameraRef.current, sceneRef.current);
+      
+      // Calculate NDC coordinates
+      const ndcStartX = (minX / rect.width) * 2 - 1;
+      const ndcStartY = -(minY / rect.height) * 2 + 1;
+      const ndcEndX = (maxX / rect.width) * 2 - 1;
+      const ndcEndY = -(maxY / rect.height) * 2 + 1;
+
+      selectionBox.startPoint.set(ndcStartX, ndcStartY, 0.5);
+      selectionBox.endPoint.set(ndcEndX, ndcEndY, 0.5);
+
+      const allSelected = selectionBox.select();
+      
+      const selectedObjIds: string[] = [];
+      allSelected.forEach((selectedObject: any) => {
+        const found = editorStore.objects.find(o => o.mesh === selectedObject || o.mesh === selectedObject.parent);
+        if (found && !selectedObjIds.includes(found.id)) {
+          selectedObjIds.push(found.id);
+        }
+      });
+
+      if (selectedObjIds.length > 0) {
+        editorStore.setSelectedObject(selectedObjIds[0]);
+      } else {
+        editorStore.setSelectedObject(null);
+      }
+    } else if (editorStore.mode === 'edit') {
+      const selObj = editorStore.getSelectedObject();
+      const mesh = selObj?.mesh;
+      const geom = selObj?.baseGeometry || selObj?.geometryBackup || mesh?.geometry;
+
+      if (!selObj || !mesh || !geom) return;
+
+      const rect = containerRef.current.getBoundingClientRect();
+      const clientMinX = rect.left + minX;
+      const clientMaxX = rect.left + maxX;
+      const clientMinY = rect.top + minY;
+      const clientMaxY = rect.top + maxY;
+
+      if (editorStore.selectionLevel === 'vertex') {
+        const posAttr = geom.attributes.position;
+        const temp = new THREE.Vector3();
+        const captured: number[] = [];
+
+        for (let i = 0; i < posAttr.count; i++) {
+          temp.fromBufferAttribute(posAttr, i);
+          temp.applyMatrix4(mesh.matrixWorld);
+
+          const proj = temp.clone().project(cameraRef.current);
+          const screenX = rect.left + (proj.x * 0.5 + 0.5) * rect.width;
+          const screenY = rect.top + (-proj.y * 0.5 + 0.5) * rect.height;
+
+          if (screenX >= clientMinX && screenX <= clientMaxX && screenY >= clientMinY && screenY <= clientMaxY) {
+            if (proj.z >= -1 && proj.z <= 1) {
+              captured.push(i);
+            }
+          }
+        }
+        editorStore.selectedElements = captured;
+      } else if (editorStore.selectionLevel === 'edge') {
+        const edgesList = getEdgesList(geom);
+        const captured: number[] = [];
+
+        edgesList.forEach((edge, i) => {
+          const v1 = edge[0];
+          const v2 = edge[1];
+
+          const temp1 = new THREE.Vector3();
+          const temp2 = new THREE.Vector3();
+          getVertexPosition(geom, v1, temp1);
+          getVertexPosition(geom, v2, temp2);
+
+          const midpoint = new THREE.Vector3().addVectors(temp1, temp2).multiplyScalar(0.5);
+          midpoint.applyMatrix4(mesh.matrixWorld);
+
+          const proj = midpoint.clone().project(cameraRef.current!);
+          const screenX = rect.left + (proj.x * 0.5 + 0.5) * rect.width;
+          const screenY = rect.top + (-proj.y * 0.5 + 0.5) * rect.height;
+
+          if (screenX >= clientMinX && screenX <= clientMaxX && screenY >= clientMinY && screenY <= clientMaxY) {
+            if (proj.z >= -1 && proj.z <= 1) {
+              captured.push(i);
+            }
+          }
+        });
+        editorStore.selectedElements = captured;
+      } else if (editorStore.selectionLevel === 'face') {
+        const faceCount = geom.index ? geom.index.count / 3 : geom.attributes.position.count / 3;
+        const captured: number[] = [];
+
+        for (let fIdx = 0; fIdx < faceCount; fIdx++) {
+          const indices = getFaceIndices(geom, fIdx);
+          const temp1 = new THREE.Vector3();
+          const temp2 = new THREE.Vector3();
+          const temp3 = new THREE.Vector3();
+
+          getVertexPosition(geom, indices[0], temp1);
+          getVertexPosition(geom, indices[1], temp2);
+          getVertexPosition(geom, indices[2], temp3);
+
+          const centroid = new THREE.Vector3().add(temp1).add(temp2).add(temp3).divideScalar(3);
+          centroid.applyMatrix4(mesh.matrixWorld);
+
+          const proj = centroid.clone().project(cameraRef.current!);
+          const screenX = rect.left + (proj.x * 0.5 + 0.5) * rect.width;
+          const screenY = rect.top + (-proj.y * 0.5 + 0.5) * rect.height;
+
+          if (screenX >= clientMinX && screenX <= clientMaxX && screenY >= clientMinY && screenY <= clientMaxY) {
+            if (proj.z >= -1 && proj.z <= 1) {
+              captured.push(fIdx);
+            }
+          }
+        }
+        editorStore.selectedElements = captured;
+      }
+      setHelperTrigger(t => t + 1);
+    }
+  };
+
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return; // Left click only
+
+    if (editorStore.isLassoModeActive) {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      setLassoStart({ x, y });
+      setLassoCurrent({ x, y });
+      isLassoDraggingRef.current = true;
+
+      // Clear previous selection
+      if (editorStore.mode === 'object') {
+        editorStore.setSelectedObject(null);
+      } else if (editorStore.mode === 'edit') {
+        editorStore.clearMeshSelections();
+      }
+
+      if (controlsRef.current) {
+        controlsRef.current.enabled = false;
+      }
+      return;
+    }
 
     if (transformRef.current && (transformRef.current as any).axis) {
       return; // Clicking on transform gizmo, do not raycast or select underlying objects
@@ -1760,6 +1954,29 @@ export const Viewport3D: React.FC = () => {
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (editorStore.isLassoModeActive && isLassoDraggingRef.current && lassoStart) {
+      isLassoDraggingRef.current = false;
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (rect) {
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        
+        // Define bounding rectangle in relative coords
+        const minX = Math.min(lassoStart.x, x);
+        const maxX = Math.max(lassoStart.x, x);
+        const minY = Math.min(lassoStart.y, y);
+        const maxY = Math.max(lassoStart.y, y);
+
+        performSelectionBoxSelect(minX, maxX, minY, maxY);
+      }
+      setLassoStart(null);
+      setLassoCurrent(null);
+      if (controlsRef.current) {
+        controlsRef.current.enabled = true;
+      }
+      return;
+    }
+
     // --- Interactive Primitive Drawing Transition ---
     if (
       editorStore.isInteractiveDrawingMode &&
@@ -1868,6 +2085,21 @@ export const Viewport3D: React.FC = () => {
         <div className="absolute inset-0 z-50 bg-[#1e1e1e] p-2">
           <ScriptEditor />
         </div>
+      )}
+
+      {/* 3D Lasso/Box Selection Visual Overlay */}
+      {lassoStart && lassoCurrent && (
+        <div
+          style={{
+            left: Math.min(lassoStart.x, lassoCurrent.x),
+            top: Math.min(lassoStart.y, lassoCurrent.y),
+            width: Math.abs(lassoStart.x - lassoCurrent.x),
+            height: Math.abs(lassoStart.y - lassoCurrent.y),
+            pointerEvents: 'none',
+            zIndex: 40,
+          }}
+          className="border border-blue-500 bg-blue-500/10 absolute rounded"
+        />
       )}
     </div>
   );

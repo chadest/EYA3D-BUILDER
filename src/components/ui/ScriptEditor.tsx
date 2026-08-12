@@ -34,8 +34,73 @@ export function ScriptEditor() {
       timestamp: new Date().toLocaleTimeString(),
     }
   ]);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const selObj = editorStore.getSelectedObject();
+
+  const handleGenerateScript = async () => {
+    if (!aiPrompt.trim() || isGenerating) return;
+
+    setIsGenerating(true);
+    setConsoleOutputs(prev => [
+      ...prev,
+      {
+        type: 'log',
+        text: `🤖 Demande de génération transmise à l'IA : "${aiPrompt}"...`,
+        timestamp: new Date().toLocaleTimeString(),
+      }
+    ]);
+
+    try {
+      const response = await fetch('/api/gemini/generate-script', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt: aiPrompt,
+          customApiKey: editorStore.mcpApiKey,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Erreur HTTP: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (data.error) {
+        throw new Error(data.message || data.error);
+      }
+
+      if (data.code) {
+        setCode(data.code);
+        setConsoleOutputs(prev => [
+          ...prev,
+          {
+            type: 'success',
+            text: `✅ Script généré avec succès ! Le modèle est polygonal, continu (indexé) et lissé (smooth shading). Cliquez sur "Exécuter le code" pour l'intégrer à la scène.`,
+            timestamp: new Date().toLocaleTimeString(),
+          }
+        ]);
+        setAiPrompt('');
+      } else {
+        throw new Error("Aucun code n'a été retourné par le serveur.");
+      }
+    } catch (err: any) {
+      console.error("[Script AI Generator] Error:", err);
+      setConsoleOutputs(prev => [
+        ...prev,
+        {
+          type: 'error',
+          text: `Échec de la génération : ${err.message || String(err)}`,
+          timestamp: new Date().toLocaleTimeString(),
+        }
+      ]);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   const handleRunScript = () => {
     const outputs: ConsoleLine[] = [];
@@ -138,6 +203,32 @@ export function ScriptEditor() {
             <span>Exécuter le code</span>
           </button>
         </div>
+      </div>
+
+      {/* AI Prompt Generation Bar */}
+      <div className="bg-[#1a1c21] border-b border-[#2D3139] px-4 py-2 flex items-center gap-2">
+        <Sparkles className="w-3.5 h-3.5 text-blue-400 animate-pulse" />
+        <span className="text-[10px] font-bold text-slate-400 uppercase shrink-0">Assistant IA :</span>
+        <input
+          type="text"
+          value={aiPrompt}
+          onChange={(e) => setAiPrompt(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              handleGenerateScript();
+            }
+          }}
+          disabled={isGenerating}
+          placeholder="Décrivez la forme 3D lisse (ex: 'Un verre à pied lisse', 'Une coupe de fruit polygonale')..."
+          className="flex-1 bg-[#090A0C] border border-[#2D3139] rounded px-2.5 py-1 text-xs text-white focus:outline-none focus:border-blue-500/50 placeholder-slate-500"
+        />
+        <button
+          onClick={handleGenerateScript}
+          disabled={isGenerating || !aiPrompt.trim()}
+          className="flex items-center gap-1 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-bold text-[10px] uppercase rounded px-3 py-1.5 transition-all active:scale-95 cursor-pointer shrink-0"
+        >
+          {isGenerating ? 'Génération...' : 'Générer le Script'}
+        </button>
       </div>
 
       {/* Main Code Editor Container */}

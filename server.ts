@@ -131,6 +131,51 @@ app.post("/api/gemini/chat", async (req, res) => {
             },
             required: ["targetObjectId", "type", "values"]
           }
+        },
+        {
+          name: "update_object",
+          description: "Met à jour une propriété de transformation ou d'affichage d'un objet 3D (comme sa position, sa rotation ou son échelle).",
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              targetObjectId: {
+                type: Type.STRING,
+                description: "ID de l'objet 3D cible."
+              },
+              property: {
+                type: Type.STRING,
+                description: "Propriété de transformation ou d'état : 'position', 'rotation', 'scale', 'visible'."
+              },
+              value: {
+                type: Type.ARRAY,
+                items: { type: Type.NUMBER },
+                description: "Nouvelle valeur. Tableau [x, y, z] pour 'position', 'rotation' ou 'scale'. S'il s'agit de la visibilité, envoyer [1] pour visible, [0] pour invisible."
+              }
+            },
+            required: ["targetObjectId", "property", "value"]
+          }
+        },
+        {
+          name: "set_material_property",
+          description: "Modifie une propriété de matériau d'un objet 3D (comme la couleur, la rugosité ou la brillance).",
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              targetObjectId: {
+                type: Type.STRING,
+                description: "ID de l'objet 3D cible."
+              },
+              property: {
+                type: Type.STRING,
+                description: "Propriété à modifier : 'color' (couleur hexadécimale), 'roughness' (rugosité entre 0 et 1), 'metalness' (métallisation entre 0 et 1), 'opacity' (opacité entre 0 et 1), ou 'wireframe' ('true' ou 'false')."
+              },
+              value: {
+                type: Type.STRING,
+                description: "Nouvelle valeur sous forme de chaîne de caractères (ex: '#FF0000', '0.5', 'true')."
+              }
+            },
+            required: ["targetObjectId", "property", "value"]
+          }
         }
       ];
 
@@ -144,6 +189,15 @@ Active Object Name: "${objectName || "None"}" (ID: ${objectId || "None"})
 
 When the user asks you to perform modeling operations, use the provided MCP tools to complete the request.
 You can execute multiple tools in sequence (e.g. first create a cube, then translate it, then extrude a face).
+
+CRITICAL INSTRUCTIONS AGAINST VOXELIZATION / LEGO EFFECT:
+1. NO VOXELIZATION (Interdiction des Primitives Multiples):
+   It is STRICTLY FORBIDDEN to generate multiple small cubic geometries (voxels) or stack separate cubes to simulate an object (Minecraft or LEGO style). A solid shape must be represented by A SINGLE global mesh (THREE.Mesh).
+2. SMOOTH POLYGONAL SURFACES:
+   When writing scripts or creating/recommending mesh constructions, ensure you utilize shared-vertex indices (declaring a unified array of vertices connected by geometry.index), sharing edges to form a smooth continuous polygonal surface.
+3. SMOOTH SHADING & NORMALS:
+   Always compute normals systematically using 'geometry.computeVertexNormals()' after any modification to active geometry, and configure materials with smooth rendering properties (e.g., standard roughness and metalness) to avoid faceted shading.
+
 Always explain what you are doing in French in a helpful, conversational manner. If a tool call fails, analyze the error returned by the system and try to fix your arguments in the next turn.`,
           tools: [{ functionDeclarations: mcpTools }]
         }
@@ -168,6 +222,14 @@ Your task is to analyze the user's natural language modeling request and determi
 - 'subdivide': Increasing the subdivision levels of the mesh or toggling subdivision. Optional 'value' (e.g. level, defaults to 1).
 - 'color': Changing the material color of the active object. Requires a hex code in the 'color' field (e.g. "#FF5733").
 - 'unknown': If it's a general question, explanation request, or does not match any direct action.
+
+CRITICAL INSTRUCTIONS AGAINST VOXELIZATION / LEGO EFFECT:
+1. NO VOXELIZATION (Interdiction des Primitives Multiples):
+   It is STRICTLY FORBIDDEN to create shapes by stack-building multiple individual BoxGeometries (no voxelized, Minecraft, or LEGO style). Any generated solid or custom scripts must consist of a SINGLE mesh and geometry.
+2. CONTINUOUS INDEXED GEOMETRY (Utilisation d'Index Géométriques Partagés):
+   Ensure vertex sharing via index tables (geometry.index / shared coordinates) is used for smooth, traditional polygonal shapes.
+3. SYSTEMATIC NORMALS CALCULATIONS:
+   All operations must compute normals via 'geometry.computeVertexNormals()' for smooth shading.
 
 You must reply with a structured JSON object containing:
 1. "action": One of the action strings: "extrude", "inset", "bevel", "subdivide", "color", or "unknown".
@@ -219,6 +281,85 @@ Examples:
     console.error("Error calling Gemini API:", error);
     res.status(500).json({ 
       error: "Error processing your request", 
+      message: error.message || String(error) 
+    });
+  }
+});
+
+// AI Script generator endpoint - generates smooth, non-voxelized Three.js scripts
+app.post("/api/gemini/generate-script", async (req, res) => {
+  try {
+    const { prompt, customApiKey } = req.body;
+    if (!prompt) {
+      res.status(400).json({ error: "Prompt is required." });
+      return;
+    }
+
+    // Instanciate customized AI client if user provided their secure key, fallback to env variable
+    const activeAi = customApiKey && customApiKey.trim() !== ""
+      ? new GoogleGenAI({
+          apiKey: customApiKey,
+          httpOptions: {
+            headers: {
+              'User-Agent': 'aistudio-build',
+            }
+          }
+        })
+      : ai;
+
+    const systemInstruction = `You are PolyCraft 3D Script Generator, an intelligent code author specialized in Three.js geometry construction.
+Your task is to write a clean, robust, and optimized JavaScript script to build or deform 3D models inside PolyCraft 3D Studio.
+
+The generated script will be evaluated as a function with the following variables injected into its scope:
+- 'THREE' (the global Three.js namespace)
+- 'scene' (the active THREE.Scene instance)
+- 'selectedModel' (the currently selected THREE.Mesh or null)
+- 'console' (a mock console with log/warn/error functions to stream messages to the terminal)
+
+CRITICAL STRUCTURAL BOUNDARIES (INTERDICTION DES PRIMITIVES MULTIPLES & VOXELISATION):
+1. NO VOXELIZATION (Interdiction Formelle de la Voxelisation) :
+   It is STRICTLY FORBIDDEN to instantiate multiple individual cubes ('THREE.BoxGeometry') or objects inside loops, or to stack multiple separate primitives to shape a solid model (no Minecraft, LEGO, or voxel block styles). 
+   A solid shape must consist of ONE SINGLE unified 'THREE.Mesh' with ONE single, continuous, fully custom 'THREE.BufferGeometry'.
+2. SHARED GEOMETRIC INDEXING (Utilisation d'Index Géométriques Partagés) :
+   To create high-quality, smooth continuous surfaces, you must define a unified array of vertices ('positions' in a Float32Array) and interconnect them via an index table ('indices' inside geometry.setIndex). Triangles must share their edges to form smooth joints instead of isolated, faceted flat planes.
+3. MANDATORY NORMALS COMPUTATION & SMOOTH SHADING (Calcul Obligatoire des Normales) :
+   You MUST systematically call 'geometry.computeVertexNormals()' after building the custom geometry to active smooth-shading rendering on the GPU. 
+   Set material properties coherently (e.g., 'roughness: 0.4', 'metalness: 0.1') for a smooth, high-fidelity finish. Do NOT use flat shading.
+4. SCENE INSERTION :
+   Create a standard 'THREE.Mesh', assign a descriptive, unique name to it (e.g. mesh.name = "Custom Smooth Object"), and add it directly to the 'scene'.
+   Example:
+   const geometry = new THREE.BufferGeometry();
+   const vertices = new Float32Array([...]);
+   const indices = [...];
+   geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+   geometry.setIndex(indices);
+   geometry.computeVertexNormals();
+   const material = new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.35, metalness: 0.15 });
+   const mesh = new THREE.Mesh(geometry, material);
+   mesh.name = "My Smooth Mesh";
+   scene.add(mesh);
+   console.log("Objet polygonal continu créé !");
+
+Provide ONLY the raw JavaScript executable code. Do NOT enclose the code in markdown backticks (such as \`\`\`javascript). Do NOT include any intro, outro, explanatory paragraphs or conversational prose. Only output clean, ready-to-run JavaScript.`;
+
+    const response = await activeAi.models.generateContent({
+      model: "gemini-3.6-flash",
+      contents: prompt,
+      config: {
+        systemInstruction,
+        temperature: 0.2,
+      }
+    });
+
+    let code = response.text || "";
+    // Sanitize any markdown wrappers if returned
+    code = code.replace(/^```[a-zA-Z]*\n/, "").replace(/\n```$/, "").trim();
+
+    res.json({ code });
+  } catch (error: any) {
+    console.error("Error generating script:", error);
+    res.status(500).json({ 
+      error: "Error generating the 3D script.", 
       message: error.message || String(error) 
     });
   }

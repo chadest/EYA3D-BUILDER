@@ -74,11 +74,35 @@ class EditorStore {
   public bendAngle: number = 90;
   public latheSegments: number = 32;
 
-  // Viewport Settings
+  // Viewport & Theme Settings
   public showGrid: boolean = true;
   public showWireframe: boolean = false;
   public showShadows: boolean = true;
   public flatShading: boolean = false;
+  public themeMode: 'dark' | 'night' | 'light' = 'dark';
+  public isRenderMode: boolean = false;
+
+  public setThemeMode(mode: 'dark' | 'night' | 'light'): void {
+    this.themeMode = mode;
+    this.notify();
+  }
+
+  public toggleThemeMode(): void {
+    if (this.themeMode === 'dark') this.themeMode = 'night';
+    else if (this.themeMode === 'night') this.themeMode = 'light';
+    else this.themeMode = 'dark';
+    this.notify();
+  }
+
+  public toggleRenderMode(): void {
+    this.isRenderMode = !this.isRenderMode;
+    this.notify();
+  }
+
+  public setRenderMode(enabled: boolean): void {
+    this.isRenderMode = enabled;
+    this.notify();
+  }
 
   // Interactive Primitive Drawing State
   public isInteractiveDrawingMode: boolean = false;
@@ -198,6 +222,20 @@ class EditorStore {
   }
 
   public removeObject(id: string): void {
+    const targetObj = this.objects.find(o => o.id === id);
+    if (targetObj && targetObj.mesh) {
+      if (targetObj.mesh.parent) {
+        targetObj.mesh.parent.remove(targetObj.mesh);
+      }
+      if (targetObj.mesh.geometry) {
+        targetObj.mesh.geometry.dispose();
+      }
+      if (Array.isArray(targetObj.mesh.material)) {
+        targetObj.mesh.material.forEach(m => m.dispose());
+      } else if (targetObj.mesh.material) {
+        targetObj.mesh.material.dispose();
+      }
+    }
     this.objects = this.objects.filter(o => o.id !== id);
     if (this.selectedObjectId === id) {
       this.selectedObjectId = this.objects.length > 0 ? this.objects[0].id : null;

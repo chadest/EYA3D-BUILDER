@@ -31,6 +31,8 @@ import {
   GitMerge,
   Cylinder as CylinderIcon,
   Disc,
+  Eye,
+  Camera,
 } from 'lucide-react';
 import * as THREE from 'three';
 import { editorStore } from '../../store/EditorStore';
@@ -214,6 +216,33 @@ export const ToolShelf: React.FC = () => {
             <span className="hidden sm:inline text-[11px]">{m.label}</span>
           </button>
         ))}
+
+        <div className="h-4 w-px bg-[#2D3139] mx-1" />
+
+        {/* SPECIAL MODULE: Mode Rendu Réaliste (Render Mode Toggle) after Deform */}
+        <button
+          onClick={() => editorStore.toggleRenderMode()}
+          className={`flex items-center space-x-1.5 px-2.5 py-1 rounded text-xs font-bold transition-all cursor-pointer ${
+            editorStore.isRenderMode
+              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md shadow-amber-500/20 border border-amber-400 font-bold'
+              : 'text-[#8E9299] hover:text-white hover:bg-[#2D3139]'
+          }`}
+          title={
+            editorStore.isRenderMode
+              ? 'Mode Rendu Actif (Cliquer pour désactiver et repasser en Édition)'
+              : 'Activer le Mode Rendu Réaliste (HDRI Studio, SSAO, Bloom, SMAA)'
+          }
+        >
+          <Camera className={`w-3.5 h-3.5 ${editorStore.isRenderMode ? 'text-slate-950' : 'text-amber-400'}`} />
+          <span className="text-[11px] font-bold">Rendu</span>
+          <span
+            className={`text-[9px] px-1 py-0.2 rounded uppercase font-black ${
+              editorStore.isRenderMode ? 'bg-slate-950 text-amber-400' : 'bg-[#2D3139] text-[#8E9299]'
+            }`}
+          >
+            {editorStore.isRenderMode ? 'ON' : 'OFF'}
+          </span>
+        </button>
       </div>
 
       {/* 1. OBJECT MODE TOOLBAR */}

@@ -21,8 +21,34 @@ export default function App() {
     return editorStore.subscribe(() => setTick(t => t + 1));
   }, []);
 
+  // Global Keyboard Shortcuts (Delete / Backspace / Suppr for deleting selected models)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement as HTMLElement | null;
+      if (
+        activeEl &&
+        (activeEl.tagName === 'INPUT' ||
+          activeEl.tagName === 'TEXTAREA' ||
+          activeEl.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (e.key === 'Delete' || e.key === 'Backspace' || e.key === 'Suppr') {
+        const selObj = editorStore.getSelectedObject();
+        if (selObj) {
+          e.preventDefault();
+          editorStore.removeObject(selObj.id);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#0F1113] font-sans text-[#E0E0E0] select-none">
+    <div className={`theme-${editorStore.themeMode} flex flex-col h-screen w-screen overflow-hidden bg-[#0F1113] font-sans text-[#E0E0E0] select-none transition-colors duration-200`}>
       {/* Top Navigation Bar */}
       <HeaderBar />
 

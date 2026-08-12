@@ -22,6 +22,9 @@ import {
   Info,
   Maximize,
   Grid,
+  Sun,
+  Moon,
+  Sparkles,
 } from 'lucide-react';
 import * as THREE from 'three';
 import { editorStore } from '../../store/EditorStore';
@@ -383,6 +386,23 @@ export const HeaderBar: React.FC = () => {
           title="Toggle Grid"
         >
           <Grid className="w-3.5 h-3.5" />
+        </button>
+
+        {/* Theme Dark / Night / Light Toggle */}
+        <button
+          onClick={() => editorStore.toggleThemeMode()}
+          className="p-1.5 rounded border border-[#2D3139] bg-[#1C1E22] hover:bg-[#2D3139] transition-all flex items-center justify-center cursor-pointer"
+          title={`Thème actuel: ${
+            editorStore.themeMode === 'dark'
+              ? 'Sombre'
+              : editorStore.themeMode === 'night'
+              ? 'Nuit'
+              : 'Clair'
+          } (Cliquer pour changer)`}
+        >
+          {editorStore.themeMode === 'dark' && <Moon className="w-3.5 h-3.5 text-indigo-400" />}
+          {editorStore.themeMode === 'night' && <Sparkles className="w-3.5 h-3.5 text-sky-400" />}
+          {editorStore.themeMode === 'light' && <Sun className="w-3.5 h-3.5 text-amber-500" />}
         </button>
 
         {/* Export Button */}

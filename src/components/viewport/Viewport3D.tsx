@@ -24,7 +24,9 @@ import {
   snapVector3,
   generatePrimitiveGeometry,
 } from '../../core/primitives/interactivePrimitives';
+import { Trash2, Camera } from 'lucide-react';
 import { InteractivePrimitivePopup } from '../ui/InteractivePrimitivePopup';
+import { RealisticRenderPipeline } from '../../core/rendering/renderPipeline';
 
 // 1. Interactive 3D Coordinate Axis Orientation Gizmo (Matching User Screenshot)
 interface ViewOrientationGizmoProps {
@@ -185,6 +187,7 @@ export const Viewport3D: React.FC = () => {
   const curveHandlesRef = useRef<THREE.Group>(new THREE.Group());
   const selectionGizmoRef = useRef<THREE.Group>(new THREE.Group());
   const latticeWireframeRef = useRef<THREE.LineSegments | null>(null);
+  const renderPipelineRef = useRef<RealisticRenderPipeline | null>(null);
 
   const isSculptingRef = useRef<boolean>(false);
   const isShiftPressedRef = useRef<boolean>(false);
@@ -445,6 +448,11 @@ export const Viewport3D: React.FC = () => {
     scene.add(curveHandlesRef.current);
     scene.add(selectionGizmoRef.current);
 
+    // Initialize Realistic Render Pipeline
+    const renderPipeline = new RealisticRenderPipeline();
+    renderPipeline.init(renderer, scene, camera);
+    renderPipelineRef.current = renderPipeline;
+
     // Add initial cube primitive if empty
     if (editorStore.objects.length === 0) {
       const initGeom = new THREE.BoxGeometry(1.5, 1.5, 1.5, 4, 4, 4);
@@ -521,7 +529,21 @@ export const Viewport3D: React.FC = () => {
         if (latticeWireframeRef.current) scene.remove(latticeWireframeRef.current);
       }
 
-      renderer.render(scene, camera);
+      if (editorStore.isRenderMode) {
+        gridHelper.visible = false;
+        axesHelper.visible = false;
+        transformControls.enabled = false;
+        transformControls.getHelper().visible = false;
+        renderPipeline.enableRenderEnvironment(scene);
+        renderPipeline.render(renderer, scene, camera);
+      } else {
+        gridHelper.visible = editorStore.showGrid;
+        axesHelper.visible = true;
+        transformControls.enabled = true;
+        transformControls.getHelper().visible = true;
+        renderPipeline.disableRenderEnvironment(scene);
+        renderer.render(scene, camera);
+      }
     };
 
     animate();
@@ -534,6 +556,9 @@ export const Viewport3D: React.FC = () => {
       cameraRef.current.aspect = w / h;
       cameraRef.current.updateProjectionMatrix();
       rendererRef.current.setSize(w, h);
+      if (renderPipelineRef.current) {
+        renderPipelineRef.current.setSize(w, h);
+      }
     };
 
     window.addEventListener('resize', handleResize);
@@ -547,8 +572,22 @@ export const Viewport3D: React.FC = () => {
     };
   }, []);
 
+  // Sync background color when themeMode changes
+  useEffect(() => {
+    if (sceneRef.current) {
+      if (editorStore.themeMode === 'night') {
+        sceneRef.current.background = new THREE.Color(0x04060c);
+      } else if (editorStore.themeMode === 'light') {
+        sceneRef.current.background = new THREE.Color(0xeaecec);
+      } else {
+        sceneRef.current.background = new THREE.Color(0x090a0c);
+      }
+    }
+  }, [editorStore.themeMode]);
+
   // Raycasting Mouse Interaction Handler for Selection & Sculpting
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (editorStore.isRenderMode) return;
     if (!containerRef.current || !sceneRef.current || !cameraRef.current) return;
 
     // --- Interactive Primitive Drawing Real-time Updates ---
@@ -971,6 +1010,22 @@ export const Viewport3D: React.FC = () => {
                 <span className="w-10 text-right text-white text-[11px]">{objSize.z.toFixed(1)}</span>
               </div>
             </div>
+          </div>
+
+          {/* Delete Selected Model Quick Action */}
+          <div className="pt-1 border-t border-[#2D3139] flex justify-end">
+            <button
+              onClick={() => {
+                if (selObj) {
+                  editorStore.removeObject(selObj.id);
+                }
+              }}
+              className="flex items-center space-x-1.5 px-2.5 py-1 rounded bg-rose-500/20 hover:bg-rose-500/35 text-rose-300 border border-rose-500/40 text-[11px] font-sans font-semibold transition-all cursor-pointer shadow-sm"
+              title="Supprimer ce modèle (Suppr / Backspace)"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+              <span>Supprimer le modèle</span>
+            </button>
           </div>
         </div>
       )}

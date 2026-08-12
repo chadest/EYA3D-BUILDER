@@ -33,6 +33,7 @@ import {
   Disc,
   Eye,
   Camera,
+  Code,
 } from 'lucide-react';
 import * as THREE from 'three';
 import { editorStore } from '../../store/EditorStore';
@@ -110,7 +111,8 @@ export const ToolShelf: React.FC = () => {
     if (!selObj || !selObj.mesh) return;
     const faces = editorStore.selectedIndices.faces;
     const targetFaces = faces.length > 0 ? faces : [0];
-    const newGeom = extrudeFaces(selObj.mesh.geometry, targetFaces, editorStore.extrudeDistance);
+    const sourceGeom = selObj.baseGeometry || selObj.geometryBackup || selObj.mesh.geometry;
+    const newGeom = extrudeFaces(sourceGeom, targetFaces, editorStore.extrudeDistance);
     editorStore.updateGeometryBackup(selObj.id, newGeom);
   };
 
@@ -118,7 +120,8 @@ export const ToolShelf: React.FC = () => {
     if (!selObj || !selObj.mesh) return;
     const faces = editorStore.selectedIndices.faces;
     const targetFaces = faces.length > 0 ? faces : [0];
-    const newGeom = insetFaces(selObj.mesh.geometry, targetFaces, editorStore.insetAmount);
+    const sourceGeom = selObj.baseGeometry || selObj.geometryBackup || selObj.mesh.geometry;
+    const newGeom = insetFaces(sourceGeom, targetFaces, editorStore.insetAmount);
     editorStore.updateGeometryBackup(selObj.id, newGeom);
   };
 
@@ -126,13 +129,15 @@ export const ToolShelf: React.FC = () => {
     if (!selObj || !selObj.mesh) return;
     const faces = editorStore.selectedIndices.faces;
     const targetFaces = faces.length > 0 ? faces : [0];
-    const newGeom = bevelFaces(selObj.mesh.geometry, targetFaces, editorStore.bevelWidth);
+    const sourceGeom = selObj.baseGeometry || selObj.geometryBackup || selObj.mesh.geometry;
+    const newGeom = bevelFaces(sourceGeom, targetFaces, editorStore.bevelWidth);
     editorStore.updateGeometryBackup(selObj.id, newGeom);
   };
 
   const handleLoopCut = () => {
     if (!selObj || !selObj.mesh) return;
-    const newGeom = loopCut(selObj.mesh.geometry);
+    const sourceGeom = selObj.baseGeometry || selObj.geometryBackup || selObj.mesh.geometry;
+    const newGeom = loopCut(sourceGeom);
     editorStore.updateGeometryBackup(selObj.id, newGeom);
   };
 
@@ -143,8 +148,32 @@ export const ToolShelf: React.FC = () => {
       alert('Please select at least 2 faces to bridge.');
       return;
     }
-    const newGeom = bridgeFaces(selObj.mesh.geometry, faces[0], faces[1]);
+    const sourceGeom = selObj.baseGeometry || selObj.geometryBackup || selObj.mesh.geometry;
+    const newGeom = bridgeFaces(sourceGeom, faces[0], faces[1]);
     editorStore.updateGeometryBackup(selObj.id, newGeom);
+  };
+
+  const activeSubD = selObj?.modifiers?.find(m => m.type === 'subd' && m.enabled) as any;
+
+  const handleToggleSubdivision = () => {
+    if (!selObj) return;
+    const subDMod = selObj.modifiers.find(m => m.type === 'subd');
+    if (subDMod) {
+      if ((subDMod as any).levels >= 3) {
+        editorStore.removeModifier(selObj.id, subDMod.id);
+      } else {
+        editorStore.updateModifier(selObj.id, subDMod.id, { levels: (subDMod as any).levels + 1 });
+      }
+    } else {
+      const modId = `mod_subd_${Date.now()}`;
+      editorStore.addModifier(selObj.id, {
+        id: modId,
+        type: 'subd',
+        enabled: true,
+        levels: 1,
+        creaseWeight: 0.0,
+      } as any);
+    }
   };
 
   // Curve / Lathe
@@ -268,6 +297,36 @@ export const ToolShelf: React.FC = () => {
             {editorStore.xRayMode ? 'ON' : 'OFF'}
           </span>
         </button>
+
+        <div className="h-4 w-px bg-[#2D3139] mx-1" />
+
+        {/* Preview / Code Tab Switcher (Professional Scripting Environment Toggle) */}
+        <div className="flex items-center bg-[#0F1113] p-0.5 rounded border border-[#2D3139] space-x-0.5">
+          <button
+            onClick={() => editorStore.setMainTab('preview')}
+            className={`flex items-center space-x-1 px-2.5 py-1 rounded text-xs font-bold transition-all cursor-pointer ${
+              editorStore.activeMainTab === 'preview'
+                ? 'bg-[#2D3139] text-white border border-[#4A90E2] shadow-sm'
+                : 'text-[#8E9299] hover:text-white'
+            }`}
+            title="Aperçu 3D interactif"
+          >
+            <Eye className="w-3.5 h-3.5 text-blue-400" />
+            <span>Preview</span>
+          </button>
+          <button
+            onClick={() => editorStore.setMainTab('code')}
+            className={`flex items-center space-x-1 px-2.5 py-1 rounded text-xs font-bold transition-all cursor-pointer ${
+              editorStore.activeMainTab === 'code'
+                ? 'bg-[#2D3139] text-white border border-[#4A90E2] shadow-sm'
+                : 'text-[#8E9299] hover:text-white'
+            }`}
+            title="Éditeur de code JavaScript/TypeScript pour manipuler la scène"
+          >
+            <Code className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Code</span>
+          </button>
+        </div>
       </div>
 
       {/* 1. OBJECT MODE TOOLBAR */}
@@ -511,6 +570,22 @@ export const ToolShelf: React.FC = () => {
               title="Bridge Selected Faces"
             >
               <GitMerge className="w-4 h-4" />
+            </button>
+            <button
+              onClick={handleToggleSubdivision}
+              className={`p-1.5 rounded transition-all flex items-center justify-center relative ${
+                activeSubD
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold'
+                  : 'hover:bg-[#2D3139] text-white hover:text-[#4A90E2]'
+              }`}
+              title={activeSubD ? `Catmull-Clark Subdivision Level ${activeSubD.levels} (Click to cycle levels)` : "Apply Catmull-Clark Subdivision Modifier"}
+            >
+              <Grid className={`w-4 h-4 ${activeSubD ? 'text-amber-400' : 'text-gray-400'}`} />
+              {activeSubD && (
+                <span className="text-[9px] px-1 bg-amber-500 text-slate-950 rounded font-black absolute -top-1 -right-1">
+                  {activeSubD.levels}
+                </span>
+              )}
             </button>
           </div>
         </div>

@@ -17,6 +17,7 @@
  */
 
 import * as THREE from 'three';
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {
   ArrayModifierConfig,
   MirrorModifierConfig,
@@ -151,9 +152,25 @@ export function processModifierStack(
         break;
       case 'subd': {
         const cfg = mod as SubDModifierConfig;
-        for (let lvl = 0; lvl < cfg.levels; lvl++) {
-          currentGeom = subdivideCatmullClark(currentGeom, cfg.creaseWeight);
+        
+        // Clean and merge duplicate vertices at the same point in space
+        let cleanedGeometry = currentGeom;
+        try {
+          cleanedGeometry = mergeVertices(currentGeom, 0.001);
+        } catch (e) {
+          console.warn("Could not merge vertices with mergeVertices:", e);
         }
+
+        for (let lvl = 0; lvl < cfg.levels; lvl++) {
+          cleanedGeometry = subdivideCatmullClark(cleanedGeometry, cfg.creaseWeight);
+        }
+
+        // Force complete lighting refresh and update bounding box/sphere
+        cleanedGeometry.computeVertexNormals();
+        cleanedGeometry.computeBoundingSphere();
+        cleanedGeometry.computeBoundingBox();
+
+        currentGeom = cleanedGeometry;
         break;
       }
       case 'twist': {

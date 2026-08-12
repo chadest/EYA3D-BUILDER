@@ -96,6 +96,7 @@ export interface SceneObject {
   type: 'mesh' | 'curve' | 'group';
   mesh?: THREE.Mesh;
   geometryBackup?: THREE.BufferGeometry; // Original geometry before modifiers
+  baseGeometry?: THREE.BufferGeometry; // Original non-subdivided/non-modified geometry for control cage
   modifiers: ModifierConfig[];
   materialProps: {
     color: string;

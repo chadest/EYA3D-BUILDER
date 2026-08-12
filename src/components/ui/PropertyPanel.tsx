@@ -25,6 +25,10 @@ import {
   Activity,
   Sun,
   Grid,
+  ChevronLeft,
+  ChevronRight,
+  PanelRightClose,
+  PanelRightOpen,
 } from 'lucide-react';
 import * as THREE from 'three';
 import { editorStore } from '../../store/EditorStore';
@@ -60,8 +64,78 @@ export const PropertyPanel: React.FC = () => {
   const selectedEdges = editorStore.selectedIndices.edges.length;
   const selectedVertices = editorStore.selectedIndices.vertices.length;
 
+  if (!editorStore.isPropertyPanelOpen) {
+    return (
+      <div 
+        id="inspector-panel-collapsed" 
+        className="w-12 bg-[#16181C] border-l border-[#2D3139] text-[#E0E0E0] select-none z-10 flex flex-col items-center py-3 space-y-5 h-full overflow-hidden"
+      >
+        <button
+          onClick={() => editorStore.togglePropertyPanel()}
+          className="p-2 rounded hover:bg-[#2D3139] text-[#8E9299] hover:text-white transition-all flex items-center justify-center"
+          title="Open Inspector Panel"
+        >
+          <PanelRightOpen className="w-5 h-5" />
+        </button>
+
+        <div className="w-full border-b border-[#2D3139]" />
+
+        <div className="flex flex-col items-center space-y-3">
+          <button
+            onClick={() => {
+              setActiveTab('scene');
+              editorStore.togglePropertyPanel();
+            }}
+            className="p-2 rounded hover:bg-[#2D3139] text-[#8E9299] hover:text-white transition-all flex items-center justify-center"
+            title="Scene Outliner (Click to open)"
+          >
+            <Layers className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab('material');
+              editorStore.togglePropertyPanel();
+            }}
+            className="p-2 rounded hover:bg-[#2D3139] text-[#8E9299] hover:text-white transition-all flex items-center justify-center"
+            title="Material Properties (Click to open)"
+          >
+            <Palette className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab('modifiers');
+              editorStore.togglePropertyPanel();
+            }}
+            className="p-2 rounded hover:bg-[#2D3139] text-[#8E9299] hover:text-white transition-all flex items-center justify-center"
+            title="Modifier Stack (Click to open)"
+          >
+            <Sliders className="w-4 h-4" />
+          </button>
+        </div>
+
+        {selObj && (
+          <div className="flex-1 flex flex-col justify-end pb-4">
+            <div className="w-2.5 h-2.5 rounded-full bg-[#4A90E2]" title={`Active: ${selObj.name}`} />
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div id="inspector-panel" className="w-80 bg-[#16181C] border-l border-[#2D3139] text-[#E0E0E0] select-none z-10 flex flex-col h-full overflow-hidden">
+      {/* Drawer Toggle Header */}
+      <div className="px-3 py-2 border-b border-[#2D3139] bg-[#1C1E22] flex items-center justify-between">
+        <span className="text-[10px] font-bold tracking-wider uppercase text-[#8E9299]">Inspector</span>
+        <button
+          onClick={() => editorStore.togglePropertyPanel()}
+          className="p-1 rounded hover:bg-[#2D3139] text-[#8E9299] hover:text-white transition-all flex items-center justify-center"
+          title="Collapse Panel"
+        >
+          <PanelRightClose className="w-4 h-4" />
+        </button>
+      </div>
+
       {/* 1. SELECTION DIAGRAM & COUNTERS SECTION */}
       <div className="p-3 border-b border-[#2D3139] bg-[#1C1E22] space-y-3">
         {/* Selection Counts Diagram */}

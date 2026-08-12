@@ -286,25 +286,89 @@ export const HeaderBar: React.FC = () => {
           <div className="relative">
             <button
               onClick={() => setActiveMenu(activeMenu === 'settings' ? null : 'settings')}
-              className="px-2 py-1 rounded hover:text-white hover:bg-[#2D3139] transition-colors"
+              className="px-2 py-1 rounded hover:text-white hover:bg-[#2D3139] transition-colors font-sans flex items-center space-x-1"
             >
-              Settings ▾
+              <Sparkles className="w-3.5 h-3.5 text-blue-400" />
+              <span>Settings ▾</span>
             </button>
             {activeMenu === 'settings' && (
               <div
-                className="absolute left-0 top-full mt-1 w-44 bg-[#1C1E22] border border-[#2D3139] rounded shadow-xl py-1 z-50 text-xs text-[#E0E0E0]"
-                onMouseLeave={() => setActiveMenu(null)}
+                className="absolute left-0 top-full mt-1 w-80 bg-[#16181C] border border-[#2D3139] rounded-lg shadow-2xl p-4.5 z-50 text-xs text-[#E0E0E0] space-y-3.5"
               >
-                <button
-                  onClick={() => {
-                    editorStore.flatShading = !editorStore.flatShading;
-                    editorStore.notify();
-                    setActiveMenu(null);
-                  }}
-                  className="w-full text-left px-3 py-1.5 hover:bg-[#2D3139] hover:text-[#4A90E2]"
-                >
-                  Flat Shading: {editorStore.flatShading ? 'ON' : 'OFF'}
-                </button>
+                <div className="flex items-center justify-between border-b border-[#2D3139] pb-2">
+                  <span className="font-bold text-[11px] text-[#8E9299] uppercase tracking-wider">Préférences Générales</span>
+                  <button 
+                    onClick={() => setActiveMenu(null)}
+                    className="text-slate-500 hover:text-slate-300 text-[10px] font-sans"
+                  >
+                    Fermer
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="font-sans text-slate-300">Flat Shading (Rendu Plat)</span>
+                  <button
+                    onClick={() => {
+                      editorStore.flatShading = !editorStore.flatShading;
+                      editorStore.notify();
+                    }}
+                    className={`px-2.5 py-1 rounded font-bold text-[10px] transition-all cursor-pointer ${
+                      editorStore.flatShading 
+                        ? 'bg-blue-600 text-white' 
+                        : 'bg-[#0F1113] text-[#8E9299] border border-[#2D3139]'
+                    }`}
+                  >
+                    {editorStore.flatShading ? 'ACTIF' : 'INACTIF'}
+                  </button>
+                </div>
+
+                <div className="border-t border-[#2D3139]/50 pt-3 space-y-3">
+                  <div className="flex items-center space-x-1.5 text-blue-400">
+                    <Sparkles className="w-4 h-4" />
+                    <span className="font-bold text-[11px] text-slate-300 uppercase tracking-wider">Configuration de l'IA</span>
+                  </div>
+
+                  {/* Mode Agent MCP Toggle */}
+                  <div className="flex items-center justify-between">
+                    <span className="font-sans text-slate-300">Mode Agent (MCP)</span>
+                    <button
+                      onClick={() => {
+                        editorStore.setMcpAgentModeEnabled(!editorStore.mcpAgentModeEnabled);
+                      }}
+                      className={`px-2.5 py-1 rounded font-bold text-[10px] transition-all cursor-pointer ${
+                        editorStore.mcpAgentModeEnabled 
+                          ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-500/20' 
+                          : 'bg-[#0F1113] text-[#8E9299] border border-[#2D3139]'
+                      }`}
+                    >
+                      {editorStore.mcpAgentModeEnabled ? 'ACTIVE (ON)' : 'DESACTIVE (OFF)'}
+                    </button>
+                  </div>
+
+                  {/* MCP Server URL Input */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] text-slate-400 font-sans block">Adresse du Serveur MCP</label>
+                    <input
+                      type="text"
+                      value={editorStore.mcpServerUrl}
+                      onChange={e => editorStore.setMcpServerUrl(e.target.value)}
+                      placeholder="e.g. http://localhost:3001/mcp"
+                      className="w-full bg-[#0F1113] border border-[#2D3139] rounded px-2.5 py-1.5 text-white font-mono text-[11px] focus:outline-none focus:border-blue-500/50 transition-colors"
+                    />
+                  </div>
+
+                  {/* LLM API KEY Input */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] text-slate-400 font-sans block">Clé API LLM (Anthropic / OpenAI)</label>
+                    <input
+                      type="password"
+                      value={editorStore.mcpApiKey}
+                      onChange={e => editorStore.setMcpApiKey(e.target.value)}
+                      placeholder="sk-or-ant-api-key-here..."
+                      className="w-full bg-[#0F1113] border border-[#2D3139] rounded px-2.5 py-1.5 text-white font-mono text-[11px] focus:outline-none focus:border-blue-500/50 transition-colors"
+                    />
+                  </div>
+                </div>
               </div>
             )}
           </div>

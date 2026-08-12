@@ -4,7 +4,7 @@
  * PolyCraft 3D Studio - Advanced Three.js WebGL Viewport
  */
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
@@ -28,6 +28,8 @@ import { Trash2, Camera } from 'lucide-react';
 import { InteractivePrimitivePopup } from '../ui/InteractivePrimitivePopup';
 import { TransformToolbar } from '../ui/TransformToolbar';
 import { NavigationToolbar } from '../ui/NavigationToolbar';
+import { AIChatButton } from '../ui/AIChatButton';
+import { ScriptEditor } from '../ui/ScriptEditor';
 import { RealisticRenderPipeline } from '../../core/rendering/renderPipeline';
 
 // 1. Interactive 3D Coordinate Axis Orientation Gizmo (Matching User Screenshot)
@@ -173,6 +175,80 @@ const ViewOrientationGizmo: React.FC<ViewOrientationGizmoProps> = ({ cameraRef, 
   );
 };
 
+// Utility functions for Geometry Manipulation (Vertex, Edge, Face)
+const getVertexPosition = (geom: THREE.BufferGeometry, index: number, target: THREE.Vector3) => {
+  const posAttr = geom.getAttribute('position');
+  if (posAttr) {
+    target.fromBufferAttribute(posAttr, index);
+  }
+};
+
+const setVertexPosition = (geom: THREE.BufferGeometry, index: number, value: THREE.Vector3) => {
+  const posAttr = geom.getAttribute('position');
+  if (posAttr) {
+    posAttr.setXYZ(index, value.x, value.y, value.z);
+  }
+};
+
+const getFaceIndices = (geom: THREE.BufferGeometry, faceIndex: number): number[] => {
+  const indexAttr = geom.index;
+  if (indexAttr) {
+    return [
+      indexAttr.getX(faceIndex * 3),
+      indexAttr.getX(faceIndex * 3 + 1),
+      indexAttr.getX(faceIndex * 3 + 2)
+    ];
+  }
+  return [faceIndex * 3, faceIndex * 3 + 1, faceIndex * 3 + 2];
+};
+
+const getEdgesList = (geom: THREE.BufferGeometry): [number, number][] => {
+  const edges: [number, number][] = [];
+  const edgeKeys = new Set<string>();
+  
+  const indexAttr = geom.index;
+  const posAttr = geom.getAttribute('position');
+  if (!posAttr) return [];
+  
+  if (indexAttr) {
+    for (let i = 0; i < indexAttr.count; i += 3) {
+      const a = indexAttr.getX(i);
+      const b = indexAttr.getX(i + 1);
+      const c = indexAttr.getX(i + 2);
+      
+      const triEdges = [[a, b], [b, c], [c, a]];
+      for (const [v1, v2] of triEdges) {
+        const minVal = Math.min(v1, v2);
+        const maxVal = Math.max(v1, v2);
+        const key = `${minVal}_${maxVal}`;
+        if (!edgeKeys.has(key)) {
+          edgeKeys.add(key);
+          edges.push([minVal, maxVal]);
+        }
+      }
+    }
+  } else {
+    for (let i = 0; i < posAttr.count; i += 3) {
+      if (i + 2 >= posAttr.count) break;
+      const a = i;
+      const b = i + 1;
+      const c = i + 2;
+      
+      const triEdges = [[a, b], [b, c], [c, a]];
+      for (const [v1, v2] of triEdges) {
+        const minVal = Math.min(v1, v2);
+        const maxVal = Math.max(v1, v2);
+        const key = `${minVal}_${maxVal}`;
+        if (!edgeKeys.has(key)) {
+          edgeKeys.add(key);
+          edges.push([minVal, maxVal]);
+        }
+      }
+    }
+  }
+  return edges;
+};
+
 export const Viewport3D: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -197,6 +273,18 @@ export const Viewport3D: React.FC = () => {
   const isSculptingRef = useRef<boolean>(false);
   const isShiftPressedRef = useRef<boolean>(false);
   const lastHitPointRef = useRef<THREE.Vector3 | null>(null);
+
+  // Edit Mode Helpers
+  const editPointsRef = useRef<THREE.Points | null>(null);
+  const editLinesRef = useRef<THREE.LineSegments | null>(null);
+  const editFacesHighlightRef = useRef<THREE.Mesh | null>(null);
+  const editFaceCentersRef = useRef<THREE.Points | null>(null);
+  const editDummyRef = useRef<THREE.Object3D>(new THREE.Object3D());
+  const lastDummyPosition = useRef<THREE.Vector3>(new THREE.Vector3());
+  const isDraggingEditDummy = useRef<boolean>(false);
+  const [helperTrigger, setHelperTrigger] = useState(0);
+  const [hoveredFaceIndex, setHoveredFaceIndex] = useState<number | null>(null);
+  const [, setTick] = useState(0);
 
   // Interactive Primitive Drawing References
   const previewMeshRef = useRef<THREE.Mesh | null>(null);
@@ -399,6 +487,506 @@ export const Viewport3D: React.FC = () => {
     };
   }, []);
 
+  // --- EDIT MODE SUB-SELECTION (VERTEX, EDGE, FACE) AND GIZMO SYSTEM ---
+  // Clean up any helper objects from the scene
+  const clearHelper = (ref: React.MutableRefObject<any>) => {
+    if (ref.current) {
+      if (sceneRef.current) sceneRef.current.remove(ref.current);
+      if (ref.current.geometry) ref.current.geometry.dispose();
+      if (ref.current.material) {
+        if (Array.isArray(ref.current.material)) {
+          ref.current.material.forEach((m: any) => m.dispose());
+        } else {
+          ref.current.material.dispose();
+        }
+      }
+      ref.current = null;
+    }
+  };
+
+  const handleEditDummyTransform = () => {
+    const selObj = editorStore.getSelectedObject();
+    if (!selObj || !selObj.mesh) return;
+    
+    const geom = selObj.baseGeometry || selObj.geometryBackup || selObj.mesh.geometry;
+    const posAttr = geom.getAttribute('position');
+    if (!posAttr) return;
+    
+    // Calculate world delta translation
+    const currentPos = editDummyRef.current.position;
+    const deltaTranslation = new THREE.Vector3().subVectors(currentPos, lastDummyPosition.current);
+    
+    // Transform deltaTranslation into local coordinate space of the mesh
+    const localDelta = deltaTranslation.clone();
+    localDelta.applyQuaternion(selObj.mesh.quaternion.clone().invert());
+    localDelta.divide(selObj.mesh.scale);
+    
+    // Get unique vertices to update
+    const vertexIndices = new Set<number>();
+    
+    if (editorStore.selectionLevel === 'vertex') {
+      editorStore.selectedIndices.vertices.forEach(vIdx => vertexIndices.add(vIdx));
+    } else if (editorStore.selectionLevel === 'edge') {
+      const edgesList = getEdgesList(geom);
+      editorStore.selectedIndices.edges.forEach(eIdx => {
+        if (eIdx >= 0 && eIdx < edgesList.length) {
+          vertexIndices.add(edgesList[eIdx][0]);
+          vertexIndices.add(edgesList[eIdx][1]);
+        }
+      });
+    } else if (editorStore.selectionLevel === 'face') {
+      editorStore.selectedIndices.faces.forEach(fIdx => {
+        const indices = getFaceIndices(geom, fIdx);
+        indices.forEach(vIdx => vertexIndices.add(vIdx));
+      });
+    }
+    
+    if (vertexIndices.size > 0) {
+      const temp = new THREE.Vector3();
+      vertexIndices.forEach(vIdx => {
+        getVertexPosition(geom, vIdx, temp);
+        temp.add(localDelta);
+        setVertexPosition(geom, vIdx, temp);
+      });
+      
+      posAttr.needsUpdate = true;
+      geom.computeVertexNormals();
+      geom.computeBoundingBox();
+      geom.computeBoundingSphere();
+      
+      if (selObj.geometryBackup) {
+        selObj.geometryBackup.copy(geom);
+      }
+      
+      // Update the smoothed/subdivided mesh in real-time
+      editorStore.reevaluateModifiers(selObj.id);
+      
+      // Update any wireframe/other visual representations of this object in the scene
+      const overlay = xRayWireframeMapRef.current.get(selObj.id);
+      if (overlay) {
+        overlay.geometry.dispose();
+        overlay.geometry = new THREE.WireframeGeometry(geom);
+      }
+    }
+    
+    // Re-save last dummy position
+    lastDummyPosition.current.copy(currentPos);
+    
+    // Force recreate visual edit mode helper geometries to match new vertex positions!
+    setHelperTrigger(t => t + 1);
+  };
+
+  // Synchronize visual edit helpers
+  useEffect(() => {
+    if (!sceneRef.current) return;
+    
+    // 1. Clear previous helpers
+    clearHelper(editPointsRef);
+    clearHelper(editLinesRef);
+    clearHelper(editFacesHighlightRef);
+    clearHelper(editFaceCentersRef);
+    
+    const selObj = editorStore.getSelectedObject();
+    if (editorStore.mode !== 'edit' || !selObj || !selObj.mesh) {
+      if (transformRef.current && transformRef.current.object === editDummyRef.current) {
+        transformRef.current.detach();
+      }
+      return;
+    }
+    
+    const mesh = selObj.mesh;
+    const geom = selObj.baseGeometry || selObj.geometryBackup || mesh.geometry;
+    const posAttr = geom.getAttribute('position');
+    if (!posAttr) return;
+    
+    const edgesList = getEdgesList(geom);
+    const selectedVerts = new Set(editorStore.selectedIndices.vertices);
+    
+    // 2. Generate point helper (Vertices) if Vertex level is selected
+    if (editorStore.selectionLevel === 'vertex') {
+      const vertexCount = posAttr.count;
+      const ptsGeom = new THREE.BufferGeometry();
+      const ptsPositions = new Float32Array(vertexCount * 3);
+      const ptsColors = new Float32Array(vertexCount * 3);
+      
+      for (let i = 0; i < vertexCount; i++) {
+        ptsPositions[i * 3] = posAttr.getX(i);
+        ptsPositions[i * 3 + 1] = posAttr.getY(i);
+        ptsPositions[i * 3 + 2] = posAttr.getZ(i);
+        
+        if (selectedVerts.has(i)) {
+          // Selected: Orange/Gold (rgb: 0.98, 0.45, 0.08)
+          ptsColors[i * 3] = 0.98;
+          ptsColors[i * 3 + 1] = 0.45;
+          ptsColors[i * 3 + 2] = 0.08;
+        } else {
+          // Unselected: Blue (rgb: 0.23, 0.51, 0.96)
+          ptsColors[i * 3] = 0.23;
+          ptsColors[i * 3 + 1] = 0.51;
+          ptsColors[i * 3 + 2] = 0.96;
+        }
+      }
+      
+      ptsGeom.setAttribute('position', new THREE.BufferAttribute(ptsPositions, 3));
+      ptsGeom.setAttribute('color', new THREE.BufferAttribute(ptsColors, 3));
+      
+      const ptsMat = new THREE.PointsMaterial({
+        size: 8,
+        sizeAttenuation: false,
+        vertexColors: true,
+        depthTest: false,
+      });
+      
+      editPointsRef.current = new THREE.Points(ptsGeom, ptsMat);
+      editPointsRef.current.position.copy(mesh.position);
+      editPointsRef.current.quaternion.copy(mesh.quaternion);
+      editPointsRef.current.scale.copy(mesh.scale);
+      
+      sceneRef.current.add(editPointsRef.current);
+    }
+    
+    // 3. Generate line helper (Edges)
+    const linesGeom = new THREE.BufferGeometry();
+    const linesPositions = new Float32Array(edgesList.length * 2 * 3);
+    const linesColors = new Float32Array(edgesList.length * 2 * 3);
+    
+    const selectedEdges = new Set(editorStore.selectedIndices.edges);
+    
+    edgesList.forEach((edge, i) => {
+      const v1 = edge[0];
+      const v2 = edge[1];
+      
+      const temp1 = new THREE.Vector3();
+      const temp2 = new THREE.Vector3();
+      getVertexPosition(geom, v1, temp1);
+      getVertexPosition(geom, v2, temp2);
+      
+      linesPositions[i * 6] = temp1.x;
+      linesPositions[i * 6 + 1] = temp1.y;
+      linesPositions[i * 6 + 2] = temp1.z;
+      
+      linesPositions[i * 6 + 3] = temp2.x;
+      linesPositions[i * 6 + 4] = temp2.y;
+      linesPositions[i * 6 + 5] = temp2.z;
+      
+      const isSel = selectedEdges.has(i);
+      const r = isSel ? 1.0 : 0.28;
+      const g = isSel ? 0.95 : 0.33;
+      const b = isSel ? 0.0 : 0.41;
+      
+      linesColors[i * 6] = r;
+      linesColors[i * 6 + 1] = g;
+      linesColors[i * 6 + 2] = b;
+      linesColors[i * 6 + 3] = r;
+      linesColors[i * 6 + 4] = g;
+      linesColors[i * 6 + 5] = b;
+    });
+    
+    linesGeom.setAttribute('position', new THREE.BufferAttribute(linesPositions, 3));
+    linesGeom.setAttribute('color', new THREE.BufferAttribute(linesColors, 3));
+    
+    const linesMat = new THREE.LineBasicMaterial({
+      vertexColors: true,
+      linewidth: 2,
+      depthTest: false,
+    });
+    
+    editLinesRef.current = new THREE.LineSegments(linesGeom, linesMat);
+    editLinesRef.current.position.copy(mesh.position);
+    editLinesRef.current.quaternion.copy(mesh.quaternion);
+    editLinesRef.current.scale.copy(mesh.scale);
+    
+    // Only show edges helper when EDGE selection is active
+    if (editorStore.selectionLevel === 'edge') {
+      sceneRef.current.add(editLinesRef.current);
+    }
+    
+    // 4. Generate faces highlight helper & face centers helper
+    const selectedFaces = editorStore.selectedIndices.faces;
+    const selectedFacesSet = new Set(selectedFaces);
+    
+    if (editorStore.selectionLevel === 'face') {
+      // Faces highlight: Combine selected faces and hovered face
+      const facesToDraw = [...selectedFaces];
+      const hoverIndex = hoveredFaceIndex;
+      const isHoveredAlreadySelected = hoverIndex !== null && selectedFacesSet.has(hoverIndex);
+      
+      if (hoverIndex !== null && !isHoveredAlreadySelected) {
+        facesToDraw.push(hoverIndex);
+      }
+      
+      if (facesToDraw.length > 0) {
+        const facesGeom = new THREE.BufferGeometry();
+        const facesPositions = new Float32Array(facesToDraw.length * 3 * 3);
+        const facesColors = new Float32Array(facesToDraw.length * 3 * 3);
+        
+        facesToDraw.forEach((fIdx, i) => {
+          const indices = getFaceIndices(geom, fIdx);
+          const temp1 = new THREE.Vector3();
+          const temp2 = new THREE.Vector3();
+          const temp3 = new THREE.Vector3();
+          
+          getVertexPosition(geom, indices[0], temp1);
+          getVertexPosition(geom, indices[1], temp2);
+          getVertexPosition(geom, indices[2], temp3);
+          
+          facesPositions[i * 9] = temp1.x;
+          facesPositions[i * 9 + 1] = temp1.y;
+          facesPositions[i * 9 + 2] = temp1.z;
+          
+          facesPositions[i * 9 + 3] = temp2.x;
+          facesPositions[i * 9 + 4] = temp2.y;
+          facesPositions[i * 9 + 5] = temp2.z;
+          
+          facesPositions[i * 9 + 6] = temp3.x;
+          facesPositions[i * 9 + 7] = temp3.y;
+          facesPositions[i * 9 + 8] = temp3.z;
+          
+          const isSelected = selectedFacesSet.has(fIdx);
+          // Selected: Vibrant Orange (rgb: 0.98, 0.45, 0.08)
+          // Hovered: Beautiful Light Neon Blue (rgb: 0.0, 0.95, 1.0)
+          const r = isSelected ? 0.98 : 0.0;
+          const g = isSelected ? 0.45 : 0.95;
+          const b = isSelected ? 0.08 : 1.0;
+          
+          for (let v = 0; v < 3; v++) {
+            facesColors[i * 9 + v * 3] = r;
+            facesColors[i * 9 + v * 3 + 1] = g;
+            facesColors[i * 9 + v * 3 + 2] = b;
+          }
+        });
+        
+        facesGeom.setAttribute('position', new THREE.BufferAttribute(facesPositions, 3));
+        facesGeom.setAttribute('color', new THREE.BufferAttribute(facesColors, 3));
+        
+        const facesMat = new THREE.MeshBasicMaterial({
+          vertexColors: true,
+          transparent: true,
+          opacity: 0.45,
+          side: THREE.DoubleSide,
+          depthTest: true,
+          depthWrite: false,
+          polygonOffset: true,
+          polygonOffsetFactor: -1,
+          polygonOffsetUnits: -1,
+        });
+        
+        editFacesHighlightRef.current = new THREE.Mesh(facesGeom, facesMat);
+        editFacesHighlightRef.current.position.copy(mesh.position);
+        editFacesHighlightRef.current.quaternion.copy(mesh.quaternion);
+        editFacesHighlightRef.current.scale.copy(mesh.scale);
+        
+        sceneRef.current.add(editFacesHighlightRef.current);
+      }
+      
+      // Face center dots (discreet Blender-style 3px dots)
+      const faceCount = geom.index ? geom.index.count / 3 : posAttr.count / 3;
+      const centersGeom = new THREE.BufferGeometry();
+      const centersPositions = new Float32Array(faceCount * 3);
+      const centersColors = new Float32Array(faceCount * 3);
+      
+      for (let fIdx = 0; fIdx < faceCount; fIdx++) {
+        const indices = getFaceIndices(geom, fIdx);
+        const temp1 = new THREE.Vector3();
+        const temp2 = new THREE.Vector3();
+        const temp3 = new THREE.Vector3();
+        
+        getVertexPosition(geom, indices[0], temp1);
+        getVertexPosition(geom, indices[1], temp2);
+        getVertexPosition(geom, indices[2], temp3);
+        
+        const centroid = new THREE.Vector3().add(temp1).add(temp2).add(temp3).divideScalar(3);
+        centersPositions[fIdx * 3] = centroid.x;
+        centersPositions[fIdx * 3 + 1] = centroid.y;
+        centersPositions[fIdx * 3 + 2] = centroid.z;
+        
+        if (selectedFacesSet.has(fIdx)) {
+          // Orange/Gold for selected center: rgb(0.98, 0.45, 0.08)
+          centersColors[fIdx * 3] = 0.98;
+          centersColors[fIdx * 3 + 1] = 0.45;
+          centersColors[fIdx * 3 + 2] = 0.08;
+        } else {
+          // Crisp clean white for unselected center: rgb(1.0, 1.0, 1.0)
+          centersColors[fIdx * 3] = 1.0;
+          centersColors[fIdx * 3 + 1] = 1.0;
+          centersColors[fIdx * 3 + 2] = 1.0;
+        }
+      }
+      
+      centersGeom.setAttribute('position', new THREE.BufferAttribute(centersPositions, 3));
+      centersGeom.setAttribute('color', new THREE.BufferAttribute(centersColors, 3));
+      
+      const centersMat = new THREE.PointsMaterial({
+        size: 3.5,
+        sizeAttenuation: false,
+        vertexColors: true,
+        depthTest: true, // Prevents dots on back faces from displaying on top of front faces
+      });
+      
+      editFaceCentersRef.current = new THREE.Points(centersGeom, centersMat);
+      editFaceCentersRef.current.position.copy(mesh.position);
+      editFaceCentersRef.current.quaternion.copy(mesh.quaternion);
+      editFaceCentersRef.current.scale.copy(mesh.scale);
+      
+      sceneRef.current.add(editFaceCentersRef.current);
+    }
+    
+    // 5. Position editDummyRef at centroid and attach transformControls
+    let hasSelection = false;
+    
+    if (editorStore.selectionLevel === 'vertex' && selectedVerts.size > 0) {
+      const centroid = new THREE.Vector3();
+      const temp = new THREE.Vector3();
+      selectedVerts.forEach(vIdx => {
+        getVertexPosition(geom, vIdx, temp);
+        centroid.add(temp);
+      });
+      centroid.divideScalar(selectedVerts.size);
+      centroid.applyMatrix4(mesh.matrixWorld);
+      
+      editDummyRef.current.position.copy(centroid);
+      editDummyRef.current.quaternion.set(0, 0, 0, 1);
+      hasSelection = true;
+    } else if (editorStore.selectionLevel === 'edge' && selectedEdges.size > 0) {
+      const uniqueVerts = new Set<number>();
+      selectedEdges.forEach(eIdx => {
+        if (eIdx >= 0 && eIdx < edgesList.length) {
+          uniqueVerts.add(edgesList[eIdx][0]);
+          uniqueVerts.add(edgesList[eIdx][1]);
+        }
+      });
+      if (uniqueVerts.size > 0) {
+        const centroid = new THREE.Vector3();
+        const temp = new THREE.Vector3();
+        uniqueVerts.forEach(vIdx => {
+          getVertexPosition(geom, vIdx, temp);
+          centroid.add(temp);
+        });
+        centroid.divideScalar(uniqueVerts.size);
+        centroid.applyMatrix4(mesh.matrixWorld);
+        
+        editDummyRef.current.position.copy(centroid);
+        editDummyRef.current.quaternion.set(0, 0, 0, 1);
+        hasSelection = true;
+      }
+    } else if (editorStore.selectionLevel === 'face' && selectedFacesSet.size > 0) {
+      const uniqueVerts = new Set<number>();
+      const centroid = new THREE.Vector3();
+      const normalSum = new THREE.Vector3();
+      const tempA = new THREE.Vector3();
+      const tempB = new THREE.Vector3();
+      const tempC = new THREE.Vector3();
+      
+      selectedFacesSet.forEach(fIdx => {
+        const indices = getFaceIndices(geom, fIdx);
+        indices.forEach(vIdx => uniqueVerts.add(vIdx));
+        
+        getVertexPosition(geom, indices[0], tempA);
+        getVertexPosition(geom, indices[1], tempB);
+        getVertexPosition(geom, indices[2], tempC);
+        
+        const tri = new THREE.Triangle(tempA, tempB, tempC);
+        const norm = new THREE.Vector3();
+        tri.getNormal(norm);
+        normalSum.add(norm);
+      });
+      
+      if (uniqueVerts.size > 0) {
+        const temp = new THREE.Vector3();
+        uniqueVerts.forEach(vIdx => {
+          getVertexPosition(geom, vIdx, temp);
+          centroid.add(temp);
+        });
+        centroid.divideScalar(uniqueVerts.size);
+        centroid.applyMatrix4(mesh.matrixWorld);
+        
+        normalSum.normalize();
+        const worldNormal = normalSum.clone().transformDirection(mesh.matrixWorld).normalize();
+        
+        editDummyRef.current.position.copy(centroid);
+        editDummyRef.current.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), worldNormal);
+        hasSelection = true;
+      }
+    }
+    
+    if (transformRef.current) {
+      if (hasSelection) {
+        if (transformRef.current.object !== editDummyRef.current) {
+          transformRef.current.attach(editDummyRef.current);
+        }
+        if (editorStore.selectionLevel === 'face') {
+          transformRef.current.setSpace('local');
+        } else {
+          transformRef.current.setSpace('world');
+        }
+      } else {
+        if (transformRef.current.object === editDummyRef.current) {
+          transformRef.current.detach();
+        }
+      }
+    }
+  }, [
+    helperTrigger,
+    editorStore.mode,
+    editorStore.selectionLevel,
+    editorStore.selectedIndices.vertices.length,
+    editorStore.selectedIndices.edges.length,
+    editorStore.selectedIndices.faces.length,
+    editorStore.selectedObjectId,
+    hoveredFaceIndex,
+  ]);
+
+  // Hook up event listeners on transformControls for editDummy manipulation
+  useEffect(() => {
+    const transformControls = transformRef.current;
+    if (!transformControls) return;
+    
+    const handleMouseDown = () => {
+      if (editorStore.mode === 'edit' && transformControls.object === editDummyRef.current) {
+        isDraggingEditDummy.current = true;
+        lastDummyPosition.current.copy(editDummyRef.current.position);
+        
+        const selObj = editorStore.getSelectedObject();
+        if (selObj) {
+          editorStore.pushGeometryState(selObj.id);
+        }
+      }
+    };
+    
+    const handleMouseUp = () => {
+      if (isDraggingEditDummy.current) {
+        isDraggingEditDummy.current = false;
+        
+        const selObj = editorStore.getSelectedObject();
+        if (selObj && selObj.mesh) {
+          editorStore.updateGeometryBackup(selObj.id, selObj.mesh.geometry);
+          editorStore.notify();
+        }
+      }
+    };
+    
+    const handleObjectChange = () => {
+      if (editorStore.mode === 'edit' && transformControls.object === editDummyRef.current && isDraggingEditDummy.current) {
+        handleEditDummyTransform();
+      }
+    };
+    
+    transformControls.addEventListener('mouseDown', handleMouseDown);
+    transformControls.addEventListener('mouseUp', handleMouseUp);
+    transformControls.addEventListener('objectChange', handleObjectChange);
+    
+    return () => {
+      transformControls.removeEventListener('mouseDown', handleMouseDown);
+      transformControls.removeEventListener('mouseUp', handleMouseUp);
+      transformControls.removeEventListener('objectChange', handleObjectChange);
+    };
+  }, [transformRef.current, helperTrigger]);
+
+  // Synchronize React state to re-render component and trigger effect on store change
+  useEffect(() => {
+    return editorStore.subscribe(() => setTick(t => t + 1));
+  }, []);
+
   const handleZoom = (factor: number) => {
     if (!cameraRef.current || !controlsRef.current) return;
     const camera = cameraRef.current;
@@ -484,11 +1072,13 @@ export const Viewport3D: React.FC = () => {
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x090a0c); // Elegant Dark deep background
     sceneRef.current = scene;
+    editorStore.activeThreeScene = scene;
 
     // 2. CAMERA SETUP
     const camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 1000);
     camera.position.set(4, 3, 5);
     cameraRef.current = camera;
+    editorStore.activeThreeCamera = camera;
 
     // 3. RENDERER SETUP
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
@@ -501,6 +1091,7 @@ export const Viewport3D: React.FC = () => {
 
     containerRef.current.appendChild(renderer.domElement);
     rendererRef.current = renderer;
+    editorStore.activeThreeRenderer = renderer;
 
     // 4. LIGHTING SYSTEM
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
@@ -579,6 +1170,7 @@ export const Viewport3D: React.FC = () => {
 
     scene.add(curveHandlesRef.current);
     scene.add(selectionGizmoRef.current);
+    scene.add(editDummyRef.current);
 
     // Initialize Realistic Render Pipeline
     const renderPipeline = new RealisticRenderPipeline();
@@ -766,6 +1358,9 @@ export const Viewport3D: React.FC = () => {
       if (rendererRef.current && rendererRef.current.domElement) {
         rendererRef.current.domElement.remove();
       }
+      editorStore.activeThreeScene = null;
+      editorStore.activeThreeCamera = null;
+      editorStore.activeThreeRenderer = null;
     };
   }, []);
 
@@ -948,6 +1543,33 @@ export const Viewport3D: React.FC = () => {
     } else {
       if (sculptGizmoRef.current) sculptGizmoRef.current.visible = false;
       if (controlsRef.current) controlsRef.current.enabled = true;
+      
+      // Face Hover Raycasting in Edit Mode
+      if (editorStore.mode === 'edit' && editorStore.selectionLevel === 'face' && selObj && selObj.mesh) {
+        const cageGeom = selObj.baseGeometry || selObj.geometryBackup || selObj.mesh.geometry;
+        const tempMesh = new THREE.Mesh(cageGeom, Array.isArray(selObj.mesh.material) ? selObj.mesh.material[0] : selObj.mesh.material);
+        tempMesh.position.copy(selObj.mesh.position);
+        tempMesh.quaternion.copy(selObj.mesh.quaternion);
+        tempMesh.scale.copy(selObj.mesh.scale);
+        tempMesh.updateMatrix();
+        tempMesh.updateMatrixWorld(true);
+
+        const intersects = raycaster.intersectObject(tempMesh);
+        if (intersects.length > 0 && intersects[0].faceIndex !== undefined) {
+          const fIdx = intersects[0].faceIndex;
+          if (hoveredFaceIndex !== fIdx) {
+            setHoveredFaceIndex(fIdx);
+          }
+        } else {
+          if (hoveredFaceIndex !== null) {
+            setHoveredFaceIndex(null);
+          }
+        }
+      } else {
+        if (hoveredFaceIndex !== null) {
+          setHoveredFaceIndex(null);
+        }
+      }
     }
   };
 
@@ -1050,8 +1672,8 @@ export const Viewport3D: React.FC = () => {
         lastHitPointRef.current = null;
         editorStore.pushGeometryState(selObj.id);
       }
-    } else if (editorStore.mode === 'object' || editorStore.mode === 'edit') {
-      // Raycast Object / Face Selection with X-Ray Multi-Hit Support
+    } else if (editorStore.mode === 'object') {
+      // Raycast Object Selection
       if (!sceneRef.current || !cameraRef.current || !containerRef.current) return;
 
       const rect = containerRef.current.getBoundingClientRect();
@@ -1067,18 +1689,72 @@ export const Viewport3D: React.FC = () => {
       const intersects = raycaster.intersectObjects(meshes);
 
       if (intersects.length > 0) {
-        // If X-Ray mode is active in Edit mode, allow cycling or picking deeper faces/vertices
-        const hitIndex = (editorStore.xRayMode && editorStore.mode === 'edit' && intersects.length > 1) ? 1 : 0;
-        const hit = intersects[Math.min(hitIndex, intersects.length - 1)];
+        const hit = intersects[0];
         const hitObject = editorStore.objects.find(o => o.mesh === hit.object);
 
         if (hitObject) {
           editorStore.setSelectedObject(hitObject.id);
+        }
+      }
+    } else if (editorStore.mode === 'edit') {
+      // Raycast Sub-selection (Vertices, Edges, Faces)
+      if (!sceneRef.current || !cameraRef.current || !containerRef.current) return;
+      const selObj = editorStore.getSelectedObject();
+      if (!selObj || !selObj.mesh) return;
 
-          if (editorStore.mode === 'edit' && hit.faceIndex !== undefined) {
-            editorStore.toggleSelectionIndex('faces', hit.faceIndex);
+      const rect = containerRef.current.getBoundingClientRect();
+      const mouse = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1
+      );
+
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(mouse, cameraRef.current);
+
+      if (editorStore.selectionLevel === 'vertex' && editPointsRef.current) {
+        raycaster.params.Points.threshold = 0.05;
+        const intersects = raycaster.intersectObject(editPointsRef.current);
+        if (intersects.length > 0) {
+          const hit = intersects[0];
+          if (hit.index !== undefined) {
+            editorStore.toggleSelectionIndex('vertices', hit.index);
+            e.stopPropagation();
+            return;
           }
         }
+        editorStore.clearMeshSelections();
+      } else if (editorStore.selectionLevel === 'edge' && editLinesRef.current) {
+        raycaster.params.Line.threshold = 0.05;
+        const intersects = raycaster.intersectObject(editLinesRef.current);
+        if (intersects.length > 0) {
+          const hit = intersects[0];
+          if (hit.index !== undefined) {
+            const edgeIdx = Math.floor(hit.index / 2);
+            editorStore.toggleSelectionIndex('edges', edgeIdx);
+            e.stopPropagation();
+            return;
+          }
+        }
+        editorStore.clearMeshSelections();
+      } else if (editorStore.selectionLevel === 'face') {
+        const cageGeom = selObj.baseGeometry || selObj.geometryBackup || selObj.mesh.geometry;
+        const tempMesh = new THREE.Mesh(cageGeom, Array.isArray(selObj.mesh.material) ? selObj.mesh.material[0] : selObj.mesh.material);
+        tempMesh.position.copy(selObj.mesh.position);
+        tempMesh.quaternion.copy(selObj.mesh.quaternion);
+        tempMesh.scale.copy(selObj.mesh.scale);
+        tempMesh.updateMatrix();
+        tempMesh.updateMatrixWorld(true);
+
+        const intersects = raycaster.intersectObject(tempMesh);
+        if (intersects.length > 0) {
+          const hit = intersects[0];
+          if (hit.faceIndex !== undefined) {
+            editorStore.toggleSelectionIndex('faces', hit.faceIndex);
+            e.stopPropagation();
+            return;
+          }
+        }
+        editorStore.clearMeshSelections();
       }
     }
   };
@@ -1161,6 +1837,7 @@ export const Viewport3D: React.FC = () => {
       onPointerMove={handlePointerMove}
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
+      onPointerLeave={() => setHoveredFaceIndex(null)}
       className="flex-1 w-full h-full relative cursor-crosshair bg-[#0B0D10] overflow-hidden select-none"
     >
       {/* Top Left Floating Widgets (Orientation Gizmo, Transform Toolbar & Navigation Toolbar) */}
@@ -1172,95 +1849,24 @@ export const Viewport3D: React.FC = () => {
         </div>
       </div>
 
-      {/* 2. SelfCAD Bottom-Left Position & Size Floating Inputs */}
+      {/* 2. Low-profile Bottom-Left Coordinates Display */}
       {selObj && selObj.mesh && (
-        <div className="absolute bottom-4 left-4 z-10 bg-[#16181C]/90 backdrop-blur border border-[#2D3139] p-2.5 rounded-lg shadow-xl text-xs font-mono space-y-2 text-[#E0E0E0]">
-          {/* Position Input Row */}
-          <div className="flex items-center space-x-2">
-            <span className="text-[11px] font-bold text-[#8E9299] w-14">Position</span>
-            <div className="flex items-center space-x-1.5">
-              <div className="flex items-center bg-[#0F1113] border border-[#2D3139] rounded px-1.5 py-0.5">
-                <span className="text-rose-400 font-bold text-[10px] mr-1">X</span>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={objPos.x.toFixed(1)}
-                  onChange={e => {
-                    if (selObj.mesh) {
-                      selObj.mesh.position.x = parseFloat(e.target.value) || 0;
-                      editorStore.notify();
-                    }
-                  }}
-                  className="w-10 bg-transparent text-white text-[11px] font-mono text-right focus:outline-none"
-                />
-              </div>
-              <div className="flex items-center bg-[#0F1113] border border-[#2D3139] rounded px-1.5 py-0.5">
-                <span className="text-emerald-400 font-bold text-[10px] mr-1">Y</span>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={objPos.y.toFixed(1)}
-                  onChange={e => {
-                    if (selObj.mesh) {
-                      selObj.mesh.position.y = parseFloat(e.target.value) || 0;
-                      editorStore.notify();
-                    }
-                  }}
-                  className="w-10 bg-transparent text-white text-[11px] font-mono text-right focus:outline-none"
-                />
-              </div>
-              <div className="flex items-center bg-[#0F1113] border border-[#2D3139] rounded px-1.5 py-0.5">
-                <span className="text-sky-400 font-bold text-[10px] mr-1">Z</span>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={objPos.z.toFixed(1)}
-                  onChange={e => {
-                    if (selObj.mesh) {
-                      selObj.mesh.position.z = parseFloat(e.target.value) || 0;
-                      editorStore.notify();
-                    }
-                  }}
-                  className="w-10 bg-transparent text-white text-[11px] font-mono text-right focus:outline-none"
-                />
-              </div>
-            </div>
-          </div>
+        <div className="absolute bottom-4 left-4 z-10 bg-[#16181C]/80 backdrop-blur border border-[#2D3139]/60 px-3 py-1.5 rounded-md text-[11px] font-mono text-slate-400 select-none shadow-md flex items-center space-x-2">
+          <span>x: <strong className="text-rose-400 font-semibold">{objPos.x.toFixed(1)}</strong></span>
+          <span className="text-[#2D3139]">|</span>
+          <span>y: <strong className="text-emerald-400 font-semibold">{objPos.y.toFixed(1)}</strong></span>
+          <span className="text-[#2D3139]">|</span>
+          <span>z: <strong className="text-sky-400 font-semibold">{objPos.z.toFixed(1)}</strong></span>
+        </div>
+      )}
 
-          {/* Size Input Row */}
-          <div className="flex items-center space-x-2">
-            <span className="text-[11px] font-bold text-[#8E9299] w-14">Size</span>
-            <div className="flex items-center space-x-1.5">
-              <div className="flex items-center bg-[#0F1113] border border-[#2D3139] rounded px-1.5 py-0.5">
-                <span className="text-rose-400 font-bold text-[10px] mr-1">X</span>
-                <span className="w-10 text-right text-white text-[11px]">{objSize.x.toFixed(1)}</span>
-              </div>
-              <div className="flex items-center bg-[#0F1113] border border-[#2D3139] rounded px-1.5 py-0.5">
-                <span className="text-emerald-400 font-bold text-[10px] mr-1">Y</span>
-                <span className="w-10 text-right text-white text-[11px]">{objSize.y.toFixed(1)}</span>
-              </div>
-              <div className="flex items-center bg-[#0F1113] border border-[#2D3139] rounded px-1.5 py-0.5">
-                <span className="text-sky-400 font-bold text-[10px] mr-1">Z</span>
-                <span className="w-10 text-right text-white text-[11px]">{objSize.z.toFixed(1)}</span>
-              </div>
-            </div>
-          </div>
+      {/* Floating AI Chat Assistant & Modeling Prompt (Off-White Premium card style) */}
+      <AIChatButton />
 
-          {/* Delete Selected Model Quick Action */}
-          <div className="pt-1 border-t border-[#2D3139] flex justify-end">
-            <button
-              onClick={() => {
-                if (selObj) {
-                  editorStore.removeObject(selObj.id);
-                }
-              }}
-              className="flex items-center space-x-1.5 px-2.5 py-1 rounded bg-rose-500/20 hover:bg-rose-500/35 text-rose-300 border border-rose-500/40 text-[11px] font-sans font-semibold transition-all cursor-pointer shadow-sm"
-              title="Supprimer ce modèle (Suppr / Backspace)"
-            >
-              <Trash2 className="w-3.5 h-3.5 text-rose-400" />
-              <span>Supprimer le modèle</span>
-            </button>
-          </div>
+      {/* Fullscreen Script Editor Overlay */}
+      {editorStore.activeMainTab === 'code' && (
+        <div className="absolute inset-0 z-50 bg-[#1e1e1e] p-2">
+          <ScriptEditor />
         </div>
       )}
     </div>

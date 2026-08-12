@@ -87,6 +87,7 @@ class EditorStore {
   public snapToGrid: boolean = false;
   public snapTranslationStep: number = 0.5;
   public gizmoMode: 'translate' | 'rotate' | 'scale' = 'translate';
+  public isCameraLocked: boolean = false;
 
   public setSnapToGrid(enabled: boolean): void {
     this.snapToGrid = enabled;
@@ -101,6 +102,11 @@ class EditorStore {
   public setGizmoMode(mode: 'translate' | 'rotate' | 'scale'): void {
     this.checkOtherToggle();
     this.gizmoMode = mode;
+    this.notify();
+  }
+
+  public setCameraLocked(locked: boolean): void {
+    this.isCameraLocked = locked;
     this.notify();
   }
 
@@ -219,6 +225,8 @@ class EditorStore {
   public drawingSnapStep: number = 0.5;
   public drawingStep: 'IDLE' | 'DRAWING_BASE' | 'EXTRUDING_HEIGHT' | 'COMPLETED' = 'IDLE';
   public onCancelDrawingCallback: (() => void) | null = null;
+  public onZoomInCallback: (() => void) | null = null;
+  public onZoomOutCallback: (() => void) | null = null;
 
   public cancelInteractiveDrawing(): void {
     if (this.onCancelDrawingCallback) {

@@ -27,6 +27,7 @@ import {
 import { Trash2, Camera } from 'lucide-react';
 import { InteractivePrimitivePopup } from '../ui/InteractivePrimitivePopup';
 import { TransformToolbar } from '../ui/TransformToolbar';
+import { NavigationToolbar } from '../ui/NavigationToolbar';
 import { RealisticRenderPipeline } from '../../core/rendering/renderPipeline';
 
 // 1. Interactive 3D Coordinate Axis Orientation Gizmo (Matching User Screenshot)
@@ -358,12 +359,12 @@ export const Viewport3D: React.FC = () => {
         editorStore.redoGeometry();
       } else if (!e.ctrlKey && !e.metaKey && !e.altKey && document.activeElement?.tagName !== 'INPUT') {
         const key = e.key.toLowerCase();
-        if (key === 'g' && transformRef.current) {
-          transformRef.current.setMode('translate');
-        } else if (key === 'r' && transformRef.current) {
-          transformRef.current.setMode('rotate');
-        } else if (key === 's' && transformRef.current) {
-          transformRef.current.setMode('scale');
+        if (key === 'g') {
+          editorStore.setGizmoMode('translate');
+        } else if (key === 'r') {
+          editorStore.setGizmoMode('rotate');
+        } else if (key === 's') {
+          editorStore.setGizmoMode('scale');
         } else if (key === 'x' && transformRef.current) {
           transformRef.current.showX = !transformRef.current.showX;
         } else if (key === 'y' && transformRef.current) {
@@ -387,6 +388,91 @@ export const Viewport3D: React.FC = () => {
       window.removeEventListener('keyup', handleKeyUp);
     };
   }, []);
+
+  // Synchronize callbacks for Zoom In / Zoom Out
+  useEffect(() => {
+    editorStore.onZoomInCallback = () => handleZoom(0.85);
+    editorStore.onZoomOutCallback = () => handleZoom(1.15);
+    return () => {
+      editorStore.onZoomInCallback = null;
+      editorStore.onZoomOutCallback = null;
+    };
+  }, []);
+
+  const handleZoom = (factor: number) => {
+    if (!cameraRef.current || !controlsRef.current) return;
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    
+    const offset = new THREE.Vector3().subVectors(camera.position, controls.target);
+    offset.multiplyScalar(factor);
+    // Prevent getting too close or too far
+    if (offset.length() > 0.1 && offset.length() < 100) {
+      camera.position.addVectors(controls.target, offset);
+      controls.update();
+    }
+  };
+
+  // Handle Camera/Plane Locking
+  useEffect(() => {
+    if (!controlsRef.current || !cameraRef.current || !transformRef.current) return;
+    const controls = controlsRef.current;
+    const camera = cameraRef.current;
+    const transformControls = transformRef.current;
+
+    if (editorStore.isCameraLocked) {
+      // 1. Get closest axis view
+      const getClosestAxisDir = (cam: THREE.Camera, tgt: THREE.Vector3) => {
+        const dir = new THREE.Vector3().subVectors(cam.position, tgt).normalize();
+        const axes = [
+          { name: 'right', vec: new THREE.Vector3(1, 0, 0) },
+          { name: 'left', vec: new THREE.Vector3(-1, 0, 0) },
+          { name: 'top', vec: new THREE.Vector3(0, 1, 0) },
+          { name: 'bottom', vec: new THREE.Vector3(0, -1, 0) },
+          { name: 'front', vec: new THREE.Vector3(0, 0, 1) },
+          { name: 'back', vec: new THREE.Vector3(0, 0, -1) }
+        ];
+        let maxDot = -1;
+        let closest = 'front';
+        for (const axis of axes) {
+          const dot = dir.dot(axis.vec);
+          if (dot > maxDot) {
+            maxDot = dot;
+            closest = axis.name;
+          }
+        }
+        return closest as 'top' | 'front' | 'right' | 'left' | 'back' | 'bottom';
+      };
+
+      const closest = getClosestAxisDir(camera, controls.target);
+      // 2. Snap camera to that view
+      snapCamera(closest);
+
+      // 3. Disable OrbitControls rotation
+      controls.enableRotate = false;
+
+      // 4. Restrict TransformControls axes to 2D plane
+      if (closest === 'top' || closest === 'bottom') {
+        transformControls.showX = true;
+        transformControls.showY = false;
+        transformControls.showZ = true;
+      } else if (closest === 'front' || closest === 'back') {
+        transformControls.showX = true;
+        transformControls.showY = true;
+        transformControls.showZ = false;
+      } else { // right or left
+        transformControls.showX = false;
+        transformControls.showY = true;
+        transformControls.showZ = true;
+      }
+    } else {
+      // Unlock rotation and restore all axes
+      controls.enableRotate = true;
+      transformControls.showX = true;
+      transformControls.showY = true;
+      transformControls.showZ = true;
+    }
+  }, [editorStore.isCameraLocked]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -1077,10 +1163,13 @@ export const Viewport3D: React.FC = () => {
       onPointerUp={handlePointerUp}
       className="flex-1 w-full h-full relative cursor-crosshair bg-[#0B0D10] overflow-hidden select-none"
     >
-      {/* Top Left Floating Widgets (Orientation Gizmo & Transform Toolbar) */}
+      {/* Top Left Floating Widgets (Orientation Gizmo, Transform Toolbar & Navigation Toolbar) */}
       <div className="absolute top-4 left-4 z-20 flex flex-col items-center gap-[14px] select-none pointer-events-auto">
         <ViewOrientationGizmo cameraRef={cameraRef} onSnap={snapCamera} />
-        <TransformToolbar />
+        <div className="flex flex-col gap-2 items-center">
+          <TransformToolbar />
+          <NavigationToolbar />
+        </div>
       </div>
 
       {/* 2. SelfCAD Bottom-Left Position & Size Floating Inputs */}

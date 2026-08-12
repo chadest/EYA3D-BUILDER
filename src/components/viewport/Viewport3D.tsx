@@ -1,0 +1,660 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ * PolyCraft 3D Studio - Advanced Three.js WebGL Viewport
+ */
+
+import React, { useEffect, useRef } from 'react';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
+import { editorStore } from '../../store/EditorStore';
+import { createSculptGizmo } from '../../core/sculpting/sculptBrush';
+import { sculptingEngine, SculptingBrushConfig } from '../../core/sculpting/sculptEngine';
+import {
+  createCatmullRomCurve,
+  buildCurveLineMesh,
+} from '../../core/splines/splineTool';
+import { buildLatticeCageWireframe } from '../../core/deformation/lattice';
+import { LatticeModifierConfig } from '../../types/editor';
+
+// 1. Interactive 3D Coordinate Axis Orientation Gizmo (Matching User Screenshot)
+interface ViewOrientationGizmoProps {
+  cameraRef: React.RefObject<THREE.PerspectiveCamera | null>;
+  onSnap: (dir: 'top' | 'front' | 'right' | 'left' | 'back' | 'bottom' | 'iso') => void;
+}
+
+const ViewOrientationGizmo: React.FC<ViewOrientationGizmoProps> = ({ cameraRef, onSnap }) => {
+  const [, setTick] = React.useState(0);
+
+  React.useEffect(() => {
+    let animId: number;
+    const update = () => {
+      setTick(t => (t + 1) % 100000);
+      animId = requestAnimationFrame(update);
+    };
+    animId = requestAnimationFrame(update);
+    return () => cancelAnimationFrame(animId);
+  }, []);
+
+  const camera = cameraRef.current;
+  if (!camera) return null;
+
+  const cx = 60;
+  const cy = 60;
+  const radius = 36;
+
+  const rawAxes: {
+    id: 'top' | 'bottom' | 'right' | 'left' | 'front' | 'back';
+    axis: 'X' | 'Y' | 'Z';
+    isPositive: boolean;
+    dir: THREE.Vector3;
+    color: string;
+  }[] = [
+    { id: 'right', axis: 'X', isPositive: true, dir: new THREE.Vector3(1, 0, 0), color: '#DC2626' }, // Red
+    { id: 'left', axis: 'X', isPositive: false, dir: new THREE.Vector3(-1, 0, 0), color: '#EF4444' },
+    { id: 'top', axis: 'Y', isPositive: true, dir: new THREE.Vector3(0, 1, 0), color: '#16A34A' }, // Green
+    { id: 'bottom', axis: 'Y', isPositive: false, dir: new THREE.Vector3(0, -1, 0), color: '#22C55E' },
+    { id: 'front', axis: 'Z', isPositive: true, dir: new THREE.Vector3(0, 0, 1), color: '#2563EB' }, // Blue
+    { id: 'back', axis: 'Z', isPositive: false, dir: new THREE.Vector3(0, 0, -1), color: '#3B82F6' },
+  ];
+
+  const matrix = camera.matrixWorldInverse;
+  const nodes = rawAxes.map(item => {
+    const v = item.dir.clone().transformDirection(matrix);
+    return {
+      ...item,
+      x: cx + v.x * radius,
+      y: cy - v.y * radius,
+      z: v.z,
+    };
+  });
+
+  // Sort by depth (z) ascending so background elements render first
+  nodes.sort((a, b) => a.z - b.z);
+
+  return (
+    <div className="absolute top-4 left-4 z-20 select-none pointer-events-auto bg-[#16181C]/40 backdrop-blur-sm p-2 rounded-2xl border border-[#2D3139]/50 shadow-2xl">
+      <svg className="w-28 h-28 overflow-visible" viewBox="0 0 120 120">
+        {/* Lines from center to positive axis heads */}
+        {nodes.map(node => {
+          if (!node.isPositive) return null;
+          return (
+            <line
+              key={`line-${node.axis}`}
+              x1={cx}
+              y1={cy}
+              x2={node.x}
+              y2={node.y}
+              stroke={node.color}
+              strokeWidth="3.5"
+              strokeLinecap="round"
+            />
+          );
+        })}
+
+        {/* Center pivot point (Origin) */}
+        <circle
+          cx={cx}
+          cy={cy}
+          r="4"
+          fill="#0F1113"
+          stroke="#4A90E2"
+          strokeWidth="1.5"
+          className="cursor-pointer hover:scale-125 transition-transform"
+          onClick={() => onSnap('iso')}
+        >
+          <title>Reset Isometric View</title>
+        </circle>
+
+        {/* Axis Nodes (Circles + Labels) */}
+        {nodes.map(node => {
+          if (node.isPositive) {
+            return (
+              <g
+                key={node.id}
+                className="cursor-pointer group"
+                onClick={() => onSnap(node.id)}
+              >
+                <circle
+                  cx={node.x}
+                  cy={node.y}
+                  r="11"
+                  fill={node.color}
+                  stroke="#FFFFFF"
+                  strokeWidth="1"
+                  className="transition-transform group-hover:scale-110 drop-shadow-md"
+                />
+                <text
+                  x={node.x}
+                  y={node.y + 4}
+                  textAnchor="middle"
+                  fill="#000000"
+                  fontSize="11"
+                  fontWeight="900"
+                  fontFamily="sans-serif"
+                  className="pointer-events-none select-none"
+                >
+                  {node.axis}
+                </text>
+              </g>
+            );
+          } else {
+            return (
+              <circle
+                key={node.id}
+                cx={node.x}
+                cy={node.y}
+                r="7"
+                fill={node.color}
+                opacity={node.z > 0 ? 0.9 : 0.6}
+                className="cursor-pointer hover:scale-125 transition-transform drop-shadow-sm"
+                onClick={() => onSnap(node.id)}
+              >
+                <title>View -{node.axis}</title>
+              </circle>
+            );
+          }
+        })}
+      </svg>
+    </div>
+  );
+};
+
+export const Viewport3D: React.FC = () => {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Three.js References
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const controlsRef = useRef<OrbitControls | null>(null);
+  const transformRef = useRef<TransformControls | null>(null);
+
+  // Visual Helper Objects
+  const sculptGizmoRef = useRef<THREE.Mesh | null>(null);
+  const curveLineRef = useRef<THREE.Line | null>(null);
+  const curveHandlesRef = useRef<THREE.Group>(new THREE.Group());
+  const selectionGizmoRef = useRef<THREE.Group>(new THREE.Group());
+  const latticeWireframeRef = useRef<THREE.LineSegments | null>(null);
+
+  const isSculptingRef = useRef<boolean>(false);
+  const isShiftPressedRef = useRef<boolean>(false);
+  const lastHitPointRef = useRef<THREE.Vector3 | null>(null);
+
+  useEffect(() => {
+    // Keyboard Shortcuts for Undo/Redo and Shift Invert
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') {
+        isShiftPressedRef.current = true;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          editorStore.redoGeometry();
+        } else {
+          editorStore.undoGeometry();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        editorStore.redoGeometry();
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') {
+        isShiftPressedRef.current = false;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const width = containerRef.current.clientWidth;
+    const height = containerRef.current.clientHeight;
+
+    // 1. SCENE SETUP
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x090a0c); // Elegant Dark deep background
+    sceneRef.current = scene;
+
+    // 2. CAMERA SETUP
+    const camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 1000);
+    camera.position.set(4, 3, 5);
+    cameraRef.current = camera;
+
+    // 3. RENDERER SETUP
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    renderer.setSize(width, height);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.1;
+
+    containerRef.current.appendChild(renderer.domElement);
+    rendererRef.current = renderer;
+
+    // 4. LIGHTING SYSTEM
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+    scene.add(ambientLight);
+
+    const dirLight1 = new THREE.DirectionalLight(0xffffff, 1.2);
+    dirLight1.position.set(8, 12, 8);
+    dirLight1.castShadow = true;
+    dirLight1.shadow.mapSize.width = 2048;
+    dirLight1.shadow.mapSize.height = 2048;
+    dirLight1.shadow.bias = -0.0001;
+    scene.add(dirLight1);
+
+    const dirLight2 = new THREE.DirectionalLight(0x4a90e2, 0.5);
+    dirLight2.position.set(-8, -6, -8);
+    scene.add(dirLight2);
+
+    // 5. GRID & AXES HELPERS
+    const gridHelper = new THREE.GridHelper(20, 20, 0x4a90e2, 0x2d3139);
+    gridHelper.position.y = 0;
+    scene.add(gridHelper);
+
+    const axesHelper = new THREE.AxesHelper(2);
+    axesHelper.position.set(-5, 0.01, -5);
+    scene.add(axesHelper);
+
+    // 6. ORBIT CONTROLS
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.maxPolarAngle = Math.PI / 2 + 0.1; // Restrict looking below floor
+    controlsRef.current = controls;
+
+    // 7. TRANSFORM CONTROLS (GIZMO)
+    const transformControls = new TransformControls(camera, renderer.domElement);
+    transformControls.size = 0.75;
+    scene.add(transformControls.getHelper());
+    transformRef.current = transformControls;
+
+    // Disable OrbitControls when dragging transform gizmo
+    transformControls.addEventListener('dragging-changed', event => {
+      controls.enabled = !event.value;
+    });
+
+    // 8. SCULPT GIZMO & HELPER GROUPS
+    const sculptGizmo = createSculptGizmo();
+    scene.add(sculptGizmo);
+    sculptGizmoRef.current = sculptGizmo;
+
+    scene.add(curveHandlesRef.current);
+    scene.add(selectionGizmoRef.current);
+
+    // Add initial cube primitive if empty
+    if (editorStore.objects.length === 0) {
+      const initGeom = new THREE.BoxGeometry(1.5, 1.5, 1.5, 4, 4, 4);
+      const initMat = new THREE.MeshStandardMaterial({
+        color: 0x4a90e2,
+        roughness: 0.3,
+        metalness: 0.1,
+      });
+      const initMesh = new THREE.Mesh(initGeom, initMat);
+      initMesh.castShadow = true;
+      initMesh.receiveShadow = true;
+      initMesh.position.set(0, 0.75, 0);
+      editorStore.addObject('Cube Primitive', initMesh);
+    }
+
+    // 9. ANIMATION LOOP
+    let animationFrameId: number;
+    const animate = () => {
+      animationFrameId = requestAnimationFrame(animate);
+
+      controls.update();
+
+      // Sync scene meshes with store objects
+      editorStore.objects.forEach(obj => {
+        if (obj.mesh && !scene.children.includes(obj.mesh)) {
+          scene.add(obj.mesh);
+        }
+      });
+
+      // Sync selection gizmos
+      const selObj = editorStore.getSelectedObject();
+      if (selObj && selObj.mesh && editorStore.mode === 'object') {
+        if (transformControls.object !== selObj.mesh) {
+          transformControls.attach(selObj.mesh);
+        }
+      } else {
+        transformControls.detach();
+      }
+
+      // Update Spline Curve Visualization
+      if (editorStore.mode === 'curve') {
+        const curve = createCatmullRomCurve(editorStore.curveControlPoints);
+        if (curve) {
+          if (curveLineRef.current) scene.remove(curveLineRef.current);
+          const lineMesh = buildCurveLineMesh(curve);
+          scene.add(lineMesh);
+          curveLineRef.current = lineMesh;
+        }
+
+        // Render Control Handle spheres
+        curveHandlesRef.current.clear();
+        editorStore.curveControlPoints.forEach(pt => {
+          const sphereGeom = new THREE.SphereGeometry(0.08, 12, 12);
+          const sphereMat = new THREE.MeshBasicMaterial({ color: 0x00e5ff });
+          const handle = new THREE.Mesh(sphereGeom, sphereMat);
+          handle.position.copy(pt);
+          curveHandlesRef.current.add(handle);
+        });
+      } else {
+        if (curveLineRef.current) scene.remove(curveLineRef.current);
+        curveHandlesRef.current.clear();
+      }
+
+      // Update Lattice Cage Wireframe
+      if (selObj && editorStore.mode === 'deform') {
+        const latMod = selObj.modifiers.find(m => m.type === 'lattice' && m.enabled) as LatticeModifierConfig | undefined;
+        if (latMod && latMod.points) {
+          if (latticeWireframeRef.current) scene.remove(latticeWireframeRef.current);
+          const latticeWire = buildLatticeCageWireframe(latMod.resolution, latMod.points);
+          scene.add(latticeWire);
+          latticeWireframeRef.current = latticeWire;
+        }
+      } else {
+        if (latticeWireframeRef.current) scene.remove(latticeWireframeRef.current);
+      }
+
+      renderer.render(scene, camera);
+    };
+
+    animate();
+
+    // 10. RESIZE HANDLER
+    const handleResize = () => {
+      if (!containerRef.current || !rendererRef.current || !cameraRef.current) return;
+      const w = containerRef.current.clientWidth;
+      const h = containerRef.current.clientHeight;
+      cameraRef.current.aspect = w / h;
+      cameraRef.current.updateProjectionMatrix();
+      rendererRef.current.setSize(w, h);
+    };
+
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+      window.removeEventListener('resize', handleResize);
+      if (rendererRef.current && rendererRef.current.domElement) {
+        rendererRef.current.domElement.remove();
+      }
+    };
+  }, []);
+
+  // Raycasting Mouse Interaction Handler for Selection & Sculpting
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!containerRef.current || !sceneRef.current || !cameraRef.current) return;
+
+    const rect = containerRef.current.getBoundingClientRect();
+    const mouse = new THREE.Vector2(
+      ((e.clientX - rect.left) / rect.width) * 2 - 1,
+      -((e.clientY - rect.top) / rect.height) * 2 + 1
+    );
+
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(mouse, cameraRef.current);
+
+    const selObj = editorStore.getSelectedObject();
+
+    // 1. Digital Sculpting Raycast
+    if (editorStore.mode === 'sculpt' && selObj && selObj.mesh) {
+      if (controlsRef.current) controlsRef.current.enabled = !isSculptingRef.current;
+
+      const intersects = raycaster.intersectObject(selObj.mesh);
+
+      if (intersects.length > 0) {
+        const hit = intersects[0];
+
+        if (sculptGizmoRef.current) {
+          sculptGizmoRef.current.visible = true;
+          sculptGizmoRef.current.position.copy(hit.point);
+          const r = editorStore.sculptSettings.radius;
+          sculptGizmoRef.current.scale.set(r, r, r);
+        }
+
+        if (isSculptingRef.current && hit.face) {
+          const inverseMatrix = selObj.mesh.matrixWorld.clone().invert();
+          const hitPointLocal = hit.point.clone().applyMatrix4(inverseMatrix);
+          const hitNormalWorld = hit.face.normal.clone().transformDirection(selObj.mesh.matrixWorld);
+          const normalMatrix = new THREE.Matrix3().getNormalMatrix(selObj.mesh.matrixWorld).invert();
+          const hitNormalLocal = hitNormalWorld.clone().applyMatrix3(normalMatrix).normalize();
+
+          let dragDeltaLocal: THREE.Vector3 | undefined = undefined;
+          if (lastHitPointRef.current) {
+            dragDeltaLocal = hitPointLocal.clone().sub(lastHitPointRef.current);
+          }
+          lastHitPointRef.current = hitPointLocal.clone();
+
+          const isShift = isShiftPressedRef.current;
+          const effectiveMode = isShift ? 'smooth' : editorStore.sculptSettings.mode;
+
+          const config: SculptingBrushConfig = {
+            mode: effectiveMode,
+            radius: editorStore.sculptSettings.radius,
+            strength: editorStore.sculptSettings.strength,
+            invert: editorStore.sculptSettings.invert,
+            falloff: editorStore.sculptSettings.falloff || 'smoothstep',
+            symmetryX: editorStore.sculptSettings.symmetryX || false,
+            symmetryY: editorStore.sculptSettings.symmetryY || false,
+            symmetryZ: editorStore.sculptSettings.symmetryZ || false,
+          };
+
+          // Apply sculpt deformation in real-time via SculptingEngine
+          sculptingEngine.applyStroke(
+            selObj.mesh,
+            hitPointLocal,
+            hitNormalLocal,
+            config,
+            dragDeltaLocal
+          );
+
+          editorStore.notify();
+        }
+      } else {
+        if (sculptGizmoRef.current) sculptGizmoRef.current.visible = false;
+      }
+    } else {
+      if (sculptGizmoRef.current) sculptGizmoRef.current.visible = false;
+      if (controlsRef.current) controlsRef.current.enabled = true;
+    }
+  };
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return; // Left click only
+
+    if (editorStore.mode === 'sculpt') {
+      const selObj = editorStore.getSelectedObject();
+      if (selObj) {
+        isSculptingRef.current = true;
+        lastHitPointRef.current = null;
+        editorStore.pushGeometryState(selObj.id);
+      }
+    } else if (editorStore.mode === 'object' || editorStore.mode === 'edit') {
+      // Raycast Object / Face Selection
+      if (!sceneRef.current || !cameraRef.current || !containerRef.current) return;
+
+      const rect = containerRef.current.getBoundingClientRect();
+      const mouse = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1
+      );
+
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(mouse, cameraRef.current);
+
+      const meshes = editorStore.objects.map(o => o.mesh!).filter(Boolean);
+      const intersects = raycaster.intersectObjects(meshes);
+
+      if (intersects.length > 0) {
+        const hit = intersects[0];
+        const hitObject = editorStore.objects.find(o => o.mesh === hit.object);
+
+        if (hitObject) {
+          editorStore.setSelectedObject(hitObject.id);
+
+          if (editorStore.mode === 'edit' && hit.faceIndex !== undefined) {
+            editorStore.toggleSelectionIndex('faces', hit.faceIndex);
+          }
+        }
+      }
+    }
+  };
+
+  const handlePointerUp = () => {
+    isSculptingRef.current = false;
+    lastHitPointRef.current = null;
+    if (controlsRef.current) controlsRef.current.enabled = true;
+
+    // Backup sculpt geometry after sculpt stroke finishes
+    const selObj = editorStore.getSelectedObject();
+    if (editorStore.mode === 'sculpt' && selObj && selObj.mesh) {
+      editorStore.updateGeometryBackup(selObj.id, selObj.mesh.geometry);
+    }
+  };
+
+  const snapCamera = (dir: 'top' | 'front' | 'right' | 'left' | 'back' | 'bottom' | 'iso') => {
+    if (!cameraRef.current || !controlsRef.current) return;
+    const dist = 8;
+    switch (dir) {
+      case 'top':
+        cameraRef.current.position.set(0, dist, 0.001);
+        break;
+      case 'front':
+        cameraRef.current.position.set(0, 0, dist);
+        break;
+      case 'right':
+        cameraRef.current.position.set(dist, 0, 0);
+        break;
+      case 'left':
+        cameraRef.current.position.set(-dist, 0, 0);
+        break;
+      case 'back':
+        cameraRef.current.position.set(0, 0, -dist);
+        break;
+      case 'bottom':
+        cameraRef.current.position.set(0, -dist, 0.001);
+        break;
+      case 'iso':
+        cameraRef.current.position.set(5, 5, 5);
+        break;
+    }
+    controlsRef.current.target.set(0, 0, 0);
+    controlsRef.current.update();
+  };
+
+  const selObj = editorStore.getSelectedObject();
+  const objPos = selObj?.mesh ? selObj.mesh.position : new THREE.Vector3(0, 0, 0);
+  
+  let objSize = new THREE.Vector3(0, 0, 0);
+  if (selObj?.mesh) {
+    selObj.mesh.geometry.computeBoundingBox();
+    if (selObj.mesh.geometry.boundingBox) {
+      selObj.mesh.geometry.boundingBox.getSize(objSize);
+      objSize.multiply(selObj.mesh.scale);
+    }
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      onPointerMove={handlePointerMove}
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      className="flex-1 w-full h-full relative cursor-crosshair bg-[#0B0D10] overflow-hidden select-none"
+    >
+      {/* 1. Interactive 3D Coordinate Axis Orientation Gizmo (Top Left) */}
+      <ViewOrientationGizmo cameraRef={cameraRef} onSnap={snapCamera} />
+
+      {/* 2. SelfCAD Bottom-Left Position & Size Floating Inputs */}
+      {selObj && selObj.mesh && (
+        <div className="absolute bottom-4 left-4 z-10 bg-[#16181C]/90 backdrop-blur border border-[#2D3139] p-2.5 rounded-lg shadow-xl text-xs font-mono space-y-2 text-[#E0E0E0]">
+          {/* Position Input Row */}
+          <div className="flex items-center space-x-2">
+            <span className="text-[11px] font-bold text-[#8E9299] w-14">Position</span>
+            <div className="flex items-center space-x-1.5">
+              <div className="flex items-center bg-[#0F1113] border border-[#2D3139] rounded px-1.5 py-0.5">
+                <span className="text-rose-400 font-bold text-[10px] mr-1">X</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={objPos.x.toFixed(1)}
+                  onChange={e => {
+                    if (selObj.mesh) {
+                      selObj.mesh.position.x = parseFloat(e.target.value) || 0;
+                      editorStore.notify();
+                    }
+                  }}
+                  className="w-10 bg-transparent text-white text-[11px] font-mono text-right focus:outline-none"
+                />
+              </div>
+              <div className="flex items-center bg-[#0F1113] border border-[#2D3139] rounded px-1.5 py-0.5">
+                <span className="text-emerald-400 font-bold text-[10px] mr-1">Y</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={objPos.y.toFixed(1)}
+                  onChange={e => {
+                    if (selObj.mesh) {
+                      selObj.mesh.position.y = parseFloat(e.target.value) || 0;
+                      editorStore.notify();
+                    }
+                  }}
+                  className="w-10 bg-transparent text-white text-[11px] font-mono text-right focus:outline-none"
+                />
+              </div>
+              <div className="flex items-center bg-[#0F1113] border border-[#2D3139] rounded px-1.5 py-0.5">
+                <span className="text-sky-400 font-bold text-[10px] mr-1">Z</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={objPos.z.toFixed(1)}
+                  onChange={e => {
+                    if (selObj.mesh) {
+                      selObj.mesh.position.z = parseFloat(e.target.value) || 0;
+                      editorStore.notify();
+                    }
+                  }}
+                  className="w-10 bg-transparent text-white text-[11px] font-mono text-right focus:outline-none"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Size Input Row */}
+          <div className="flex items-center space-x-2">
+            <span className="text-[11px] font-bold text-[#8E9299] w-14">Size</span>
+            <div className="flex items-center space-x-1.5">
+              <div className="flex items-center bg-[#0F1113] border border-[#2D3139] rounded px-1.5 py-0.5">
+                <span className="text-rose-400 font-bold text-[10px] mr-1">X</span>
+                <span className="w-10 text-right text-white text-[11px]">{objSize.x.toFixed(1)}</span>
+              </div>
+              <div className="flex items-center bg-[#0F1113] border border-[#2D3139] rounded px-1.5 py-0.5">
+                <span className="text-emerald-400 font-bold text-[10px] mr-1">Y</span>
+                <span className="w-10 text-right text-white text-[11px]">{objSize.y.toFixed(1)}</span>
+              </div>
+              <div className="flex items-center bg-[#0F1113] border border-[#2D3139] rounded px-1.5 py-0.5">
+                <span className="text-sky-400 font-bold text-[10px] mr-1">Z</span>
+                <span className="w-10 text-right text-white text-[11px]">{objSize.z.toFixed(1)}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

@@ -25,6 +25,7 @@ import {
   Sun,
   Moon,
   Sparkles,
+  Settings as SettingsIcon,
 } from 'lucide-react';
 import * as THREE from 'three';
 import { editorStore } from '../../store/EditorStore';
@@ -33,6 +34,37 @@ import { exportToOBJ, exportToSTL, downloadFile } from '../../core/export/export
 export const HeaderBar: React.FC = () => {
   const [, setTick] = useState(0);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't capture when typing in input/textarea/editable
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        (e.target as HTMLElement).isContentEditable
+      ) {
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        if (e.shiftKey) {
+          e.preventDefault();
+          editorStore.redo();
+        } else {
+          e.preventDefault();
+          editorStore.undo();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        editorStore.redo();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   useEffect(() => {
     return editorStore.subscribe(() => setTick(t => t + 1));
@@ -192,19 +224,29 @@ export const HeaderBar: React.FC = () => {
               >
                 <button
                   onClick={() => {
-                    editorStore.undoGeometry();
+                    editorStore.undo();
                     setActiveMenu(null);
                   }}
-                  className="w-full text-left px-3 py-1.5 hover:bg-[#2D3139] hover:text-[#4A90E2]"
+                  disabled={!editorStore.canUndo()}
+                  className={`w-full text-left px-3 py-1.5 ${
+                    editorStore.canUndo()
+                      ? 'hover:bg-[#2D3139] hover:text-[#4A90E2]'
+                      : 'text-gray-600 cursor-not-allowed opacity-50'
+                  }`}
                 >
                   Undo (Ctrl+Z)
                 </button>
                 <button
                   onClick={() => {
-                    editorStore.redoGeometry();
+                    editorStore.redo();
                     setActiveMenu(null);
                   }}
-                  className="w-full text-left px-3 py-1.5 hover:bg-[#2D3139] hover:text-[#4A90E2]"
+                  disabled={!editorStore.canRedo()}
+                  className={`w-full text-left px-3 py-1.5 ${
+                    editorStore.canRedo()
+                      ? 'hover:bg-[#2D3139] hover:text-[#4A90E2]'
+                      : 'text-gray-600 cursor-not-allowed opacity-50'
+                  }`}
                 >
                   Redo (Ctrl+Y)
                 </button>
@@ -288,81 +330,76 @@ export const HeaderBar: React.FC = () => {
             </button>
             {activeMenu === 'settings' && (
               <div
-                className="absolute left-0 top-full mt-1 w-80 bg-[#16181C] border border-[#2D3139] rounded-lg shadow-2xl p-4.5 z-50 text-xs text-[#E0E0E0] space-y-3.5"
+                className="absolute left-0 top-full mt-1 w-64 bg-[#16181C] border border-[#2D3139] rounded-lg shadow-2xl p-2 z-50 text-xs text-[#E0E0E0] space-y-1"
+                onMouseLeave={() => setActiveMenu(null)}
               >
-                <div className="flex items-center justify-between border-b border-[#2D3139] pb-2">
-                  <span className="font-bold text-[11px] text-[#8E9299] uppercase tracking-wider">Préférences Générales</span>
+                <div className="flex items-center justify-between px-2 py-1 border-b border-[#2D3139]/60">
+                  <span className="font-bold text-[10px] text-[#8E9299] uppercase tracking-wider">Paramètres du Studio</span>
                   <button 
                     onClick={() => setActiveMenu(null)}
                     className="text-slate-500 hover:text-slate-300 text-[10px] font-sans"
                   >
-                    Fermer
+                    ✕
                   </button>
                 </div>
 
-                <div className="flex items-center justify-between">
-                  <span className="font-sans text-slate-300">Flat Shading (Rendu Plat)</span>
+                <button
+                  onClick={() => {
+                    editorStore.openSettings('optimization');
+                    setActiveMenu(null);
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded hover:bg-[#2D3139] hover:text-blue-400 flex items-center justify-between group transition-colors"
+                >
+                  <span className="flex items-center space-x-2">
+                    <span className="text-blue-400">⚡</span>
+                    <span>Optimisation & VRAM (Three.js)</span>
+                  </span>
+                  <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-1 rounded">GPU</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    editorStore.openSettings('languages');
+                    setActiveMenu(null);
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded hover:bg-[#2D3139] hover:text-blue-400 flex items-center space-x-2 transition-colors"
+                >
+                  <span>🌐</span>
+                  <span>Langues & Localisation</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    editorStore.openSettings('themes');
+                    setActiveMenu(null);
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded hover:bg-[#2D3139] hover:text-blue-400 flex items-center space-x-2 transition-colors"
+                >
+                  <span>🎨</span>
+                  <span>Thèmes (Jour / Nuit / Sombre)</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    editorStore.openSettings('shortcuts');
+                    setActiveMenu(null);
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded hover:bg-[#2D3139] hover:text-blue-400 flex items-center space-x-2 transition-colors"
+                >
+                  <span>⌨️</span>
+                  <span>Raccourcis Clavier (Hotkeys)</span>
+                </button>
+
+                <div className="border-t border-[#2D3139]/60 pt-1">
                   <button
                     onClick={() => {
-                      editorStore.flatShading = !editorStore.flatShading;
-                      editorStore.notify();
+                      editorStore.openSettings('optimization');
+                      setActiveMenu(null);
                     }}
-                    className={`px-2.5 py-1 rounded font-bold text-[10px] transition-all cursor-pointer ${
-                      editorStore.flatShading 
-                        ? 'bg-blue-600 text-white' 
-                        : 'bg-[#0F1113] text-[#8E9299] border border-[#2D3139]'
-                    }`}
+                    className="w-full text-center py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 rounded text-[11px] font-medium transition-colors"
                   >
-                    {editorStore.flatShading ? 'ACTIF' : 'INACTIF'}
+                    Ouvrir le panneau complet
                   </button>
-                </div>
-
-                <div className="border-t border-[#2D3139]/50 pt-3 space-y-3">
-                  <div className="flex items-center space-x-1.5 text-blue-400">
-                    <Sparkles className="w-4 h-4" />
-                    <span className="font-bold text-[11px] text-slate-300 uppercase tracking-wider">Configuration de l'IA</span>
-                  </div>
-
-                  {/* Mode Agent MCP Toggle */}
-                  <div className="flex items-center justify-between">
-                    <span className="font-sans text-slate-300">Mode Agent (MCP)</span>
-                    <button
-                      onClick={() => {
-                        editorStore.setMcpAgentModeEnabled(!editorStore.mcpAgentModeEnabled);
-                      }}
-                      className={`px-2.5 py-1 rounded font-bold text-[10px] transition-all cursor-pointer ${
-                        editorStore.mcpAgentModeEnabled 
-                          ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-500/20' 
-                          : 'bg-[#0F1113] text-[#8E9299] border border-[#2D3139]'
-                      }`}
-                    >
-                      {editorStore.mcpAgentModeEnabled ? 'ACTIVE (ON)' : 'DESACTIVE (OFF)'}
-                    </button>
-                  </div>
-
-                  {/* MCP Server URL Input */}
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] text-slate-400 font-sans block">Adresse du Serveur MCP</label>
-                    <input
-                      type="text"
-                      value={editorStore.mcpServerUrl}
-                      onChange={e => editorStore.setMcpServerUrl(e.target.value)}
-                      placeholder="e.g. http://localhost:3001/mcp"
-                      className="w-full bg-[#0F1113] border border-[#2D3139] rounded px-2.5 py-1.5 text-white font-mono text-[11px] focus:outline-none focus:border-blue-500/50 transition-colors"
-                    />
-                  </div>
-
-                  {/* LLM API KEY Input */}
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] text-slate-400 font-sans block">Clé API LLM (Google Gemini / Custom)</label>
-                    <input
-                      type="password"
-                      value={editorStore.mcpApiKey}
-                      onChange={e => editorStore.setMcpApiKey(e.target.value)}
-                      placeholder="Défaut (Gemini API Key active)..."
-                      className="w-full bg-[#0F1113] border border-[#2D3139] rounded px-2.5 py-1.5 text-white font-mono text-[11px] focus:outline-none focus:border-blue-500/50 transition-colors"
-                    />
-                  </div>
                 </div>
               </div>
             )}
@@ -385,15 +422,25 @@ export const HeaderBar: React.FC = () => {
         {/* Quick Icon Actions (NO text, icon only) */}
         <div className="flex items-center bg-[#0F1113] p-0.5 rounded border border-[#2D3139] space-x-0.5">
           <button
-            onClick={() => editorStore.undoGeometry()}
-            className="p-1 text-[#8E9299] hover:text-white hover:bg-[#2D3139] rounded transition-colors"
+            onClick={() => editorStore.undo()}
+            disabled={!editorStore.canUndo()}
+            className={`p-1 rounded transition-colors ${
+              editorStore.canUndo()
+                ? 'text-[#8E9299] hover:text-white hover:bg-[#2D3139]'
+                : 'text-gray-600 cursor-not-allowed opacity-40'
+            }`}
             title="Undo (Ctrl+Z)"
           >
             <RotateCcw className="w-3.5 h-3.5" />
           </button>
           <button
-            onClick={() => editorStore.redoGeometry()}
-            className="p-1 text-[#8E9299] hover:text-white hover:bg-[#2D3139] rounded transition-colors"
+            onClick={() => editorStore.redo()}
+            disabled={!editorStore.canRedo()}
+            className={`p-1 rounded transition-colors ${
+              editorStore.canRedo()
+                ? 'text-[#8E9299] hover:text-white hover:bg-[#2D3139]'
+                : 'text-gray-600 cursor-not-allowed opacity-40'
+            }`}
             title="Redo (Ctrl+Y)"
           >
             <RotateCw className="w-3.5 h-3.5" />
@@ -462,6 +509,15 @@ export const HeaderBar: React.FC = () => {
           {editorStore.themeMode === 'dark' && <Moon className="w-3.5 h-3.5 text-indigo-400" />}
           {editorStore.themeMode === 'night' && <Sparkles className="w-3.5 h-3.5 text-sky-400" />}
           {editorStore.themeMode === 'light' && <Sun className="w-3.5 h-3.5 text-amber-500" />}
+        </button>
+
+        {/* Settings Modal Button */}
+        <button
+          onClick={() => editorStore.openSettings('optimization')}
+          className="p-1.5 rounded border border-[#2D3139] bg-[#1C1E22] hover:bg-[#2D3139] text-[#8E9299] hover:text-blue-400 transition-all flex items-center justify-center cursor-pointer"
+          title="Paramètres du Studio & Optimisation Three.js"
+        >
+          <SettingsIcon className="w-3.5 h-3.5" />
         </button>
 
         {/* Export Button */}

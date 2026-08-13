@@ -206,9 +206,7 @@ export const ToolShelf: React.FC = () => {
 
     try {
       const resultMesh = performCSGOperation(objA.mesh, objB.mesh, editorStore.csgOperation);
-      editorStore.removeObject(objA.id);
-      editorStore.removeObject(objB.id);
-      editorStore.addObject(`CSG_${editorStore.csgOperation.toUpperCase()}`, resultMesh);
+      editorStore.executeCSG(objA, objB, resultMesh, editorStore.csgOperation);
     } catch (err) {
       console.error('CSG Error:', err);
     }

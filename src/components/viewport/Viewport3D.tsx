@@ -543,15 +543,32 @@ export const Viewport3D: React.FC = () => {
     };
   }, []);
 
-  // Synchronize callbacks for Zoom In / Zoom Out
+  // Synchronize callbacks for Zoom In / Zoom Out and Pan Left / Pan Right
   useEffect(() => {
     editorStore.onZoomInCallback = () => handleZoom(0.85);
     editorStore.onZoomOutCallback = () => handleZoom(1.15);
+    editorStore.onPanLeftCallback = () => handlePan(-1.0, 0);
+    editorStore.onPanRightCallback = () => handlePan(1.0, 0);
     return () => {
       editorStore.onZoomInCallback = null;
       editorStore.onZoomOutCallback = null;
+      editorStore.onPanLeftCallback = null;
+      editorStore.onPanRightCallback = null;
     };
   }, []);
+
+  // Configure OrbitControls mouse buttons when Pan mode is toggled
+  useEffect(() => {
+    if (!controlsRef.current) return;
+    const controls = controlsRef.current;
+    if (editorStore.isPanMode) {
+      controls.mouseButtons.LEFT = THREE.MOUSE.PAN;
+      controls.mouseButtons.RIGHT = THREE.MOUSE.ROTATE;
+    } else {
+      controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+      controls.mouseButtons.RIGHT = THREE.MOUSE.PAN;
+    }
+  }, [editorStore.isPanMode]);
 
   // --- EDIT MODE SUB-SELECTION (VERTEX, EDGE, FACE) AND GIZMO SYSTEM ---
   // Clean up any helper objects from the scene
@@ -1067,6 +1084,23 @@ export const Viewport3D: React.FC = () => {
     }
   };
 
+  const handlePan = (distanceX: number, distanceY: number = 0) => {
+    if (!cameraRef.current || !controlsRef.current) return;
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+    
+    const panOffset = new THREE.Vector3()
+      .addScaledVector(right, distanceX)
+      .addScaledVector(up, distanceY);
+
+    camera.position.add(panOffset);
+    controls.target.add(panOffset);
+    controls.update();
+  };
+
   // Handle Camera/Plane Locking
   useEffect(() => {
     if (!controlsRef.current || !cameraRef.current || !transformRef.current) return;
@@ -1256,9 +1290,35 @@ export const Viewport3D: React.FC = () => {
     scene.add(transformControls.getHelper());
     transformRef.current = transformControls;
 
-    // Disable OrbitControls when dragging transform gizmo
+    // Disable OrbitControls when dragging transform gizmo & track object transforms
+    let initialTransformSnapshot: { position: THREE.Vector3; rotation: THREE.Euler; scale: THREE.Vector3 } | null = null;
+
     transformControls.addEventListener('dragging-changed', event => {
       controls.enabled = !event.value;
+      const selObj = editorStore.getSelectedObject();
+      const targetMesh = selObj?.mesh || selObj?.camera || selObj?.light;
+
+      if (event.value && targetMesh && editorStore.mode === 'object') {
+        initialTransformSnapshot = {
+          position: targetMesh.position.clone(),
+          rotation: targetMesh.rotation.clone(),
+          scale: targetMesh.scale.clone(),
+        };
+      } else if (!event.value && targetMesh && initialTransformSnapshot && editorStore.mode === 'object') {
+        const endTransform = {
+          position: targetMesh.position.clone(),
+          rotation: targetMesh.rotation.clone(),
+          scale: targetMesh.scale.clone(),
+        };
+        if (
+          !initialTransformSnapshot.position.equals(endTransform.position) ||
+          !initialTransformSnapshot.rotation.equals(endTransform.rotation) ||
+          !initialTransformSnapshot.scale.equals(endTransform.scale)
+        ) {
+          editorStore.recordTransformChange(selObj!.id, initialTransformSnapshot, endTransform);
+        }
+        initialTransformSnapshot = null;
+      }
     });
     transformControls.addEventListener('mouseDown', () => {
       controls.enabled = false;
@@ -2325,7 +2385,9 @@ export const Viewport3D: React.FC = () => {
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
       onPointerLeave={() => setHoveredFaceIndex(null)}
-      className="flex-1 w-full h-full relative cursor-crosshair bg-[#0B0D10] overflow-hidden select-none"
+      className={`flex-1 w-full h-full relative ${
+        editorStore.isPanMode ? 'cursor-grab active:cursor-grabbing' : 'cursor-crosshair'
+      } bg-[#0B0D10] overflow-hidden select-none`}
     >
       {/* Top Left Floating Widgets (Orientation Gizmo, Transform Toolbar & Navigation Toolbar) */}
       <div className="absolute top-4 left-4 z-20 flex flex-col items-center gap-[14px] select-none pointer-events-auto">

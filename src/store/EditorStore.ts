@@ -22,6 +22,16 @@ import {
   insetFaces,
   bevelFaces,
 } from '../core/geometry/polygonOps';
+import {
+  commandHistory,
+  AddObjectCommand,
+  RemoveObjectCommand,
+  GeometryChangeCommand,
+  TransformCommand,
+  ModifierChangeCommand,
+  CompositeCommand,
+  Command,
+} from '../core/history/commandHistory';
 
 type StateListener = () => void;
 
@@ -90,10 +100,23 @@ class EditorStore {
   public xRayMode: boolean = false;
   public isPropertyPanelOpen: boolean = true;
   public isLassoModeActive: boolean = false;
+  public isSettingsModalOpen: boolean = false;
+  public settingsInitialTab: 'optimization' | 'languages' | 'themes' | 'shortcuts' = 'optimization';
   public activeMainTab: 'preview' | 'code' = 'preview';
   public activeThreeScene: THREE.Scene | null = null;
   public activeThreeCamera: THREE.PerspectiveCamera | null = null;
   public activeThreeRenderer: THREE.WebGLRenderer | null = null;
+
+  public openSettings(tab: 'optimization' | 'languages' | 'themes' | 'shortcuts' = 'optimization'): void {
+    this.settingsInitialTab = tab;
+    this.isSettingsModalOpen = true;
+    this.notify();
+  }
+
+  public closeSettings(): void {
+    this.isSettingsModalOpen = false;
+    this.notify();
+  }
 
   public setLassoModeActive(active: boolean): void {
     this.isLassoModeActive = active;
@@ -365,6 +388,14 @@ class EditorStore {
   public onCancelDrawingCallback: (() => void) | null = null;
   public onZoomInCallback: (() => void) | null = null;
   public onZoomOutCallback: (() => void) | null = null;
+  public isPanMode: boolean = false;
+  public onPanLeftCallback: (() => void) | null = null;
+  public onPanRightCallback: (() => void) | null = null;
+
+  public togglePanMode(): void {
+    this.isPanMode = !this.isPanMode;
+    this.notify();
+  }
 
   public cancelInteractiveDrawing(): void {
     if (this.onCancelDrawingCallback) {
@@ -447,10 +478,14 @@ class EditorStore {
     return this.objects.find(o => o.id === this.selectedObjectId) || null;
   }
 
+  // Pending snapshots for geometry operations
+  private pendingGeometrySnapshots: Map<string, THREE.BufferGeometry> = new Map();
+
   public addObject(
     name: string,
     object: THREE.Object3D,
-    type: 'mesh' | 'curve' | 'group' | 'camera' | 'light' = 'mesh'
+    type: 'mesh' | 'curve' | 'group' | 'camera' | 'light' = 'mesh',
+    skipHistory: boolean = false
   ): SceneObject {
     const obj: SceneObject = {
       id: `obj_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
@@ -493,79 +528,174 @@ class EditorStore {
 
     object.userData.id = obj.id;
     this.objects.push(obj);
+    if (this.activeThreeScene && object.parent !== this.activeThreeScene) {
+      this.activeThreeScene.add(object);
+    }
     this.selectedObjectId = obj.id;
+
+    if (!skipHistory) {
+      commandHistory.recordAndExecute(new AddObjectCommand(obj, this, `Placement: ${obj.name}`), true);
+    }
+
     this.notify();
     return obj;
   }
 
-  public removeObject(id: string): void {
+  public removeObject(id: string, skipHistory: boolean = false): void {
     const targetObj = this.objects.find(o => o.id === id);
-    if (targetObj && targetObj.mesh) {
-      if (targetObj.mesh.parent) {
-        targetObj.mesh.parent.remove(targetObj.mesh);
+    if (!targetObj) return;
+
+    if (!skipHistory) {
+      commandHistory.recordAndExecute(new RemoveObjectCommand(targetObj, this, `Suppression: ${targetObj.name}`), false);
+    } else {
+      const targetMesh = targetObj.mesh || targetObj.camera || targetObj.light;
+      if (targetMesh && targetMesh.parent) {
+        targetMesh.parent.remove(targetMesh);
       }
-      if (targetObj.mesh.geometry) {
+      if (targetObj.mesh?.geometry) {
         targetObj.mesh.geometry.dispose();
       }
-      if (Array.isArray(targetObj.mesh.material)) {
-        targetObj.mesh.material.forEach(m => m.dispose());
-      } else if (targetObj.mesh.material) {
-        targetObj.mesh.material.dispose();
+      this.objects = this.objects.filter(o => o.id !== id);
+      if (this.selectedObjectId === id) {
+        this.selectedObjectId = this.objects.length > 0 ? this.objects[0].id : null;
       }
+      this.notify();
     }
-    this.objects = this.objects.filter(o => o.id !== id);
-    if (this.selectedObjectId === id) {
-      this.selectedObjectId = this.objects.length > 0 ? this.objects[0].id : null;
-    }
-    this.notify();
+  }
+
+  public executeCSG(objA: SceneObject, objB: SceneObject, resultMesh: THREE.Mesh, csgOpName: string): void {
+    const removeA = new RemoveObjectCommand(objA, this);
+    const removeB = new RemoveObjectCommand(objB, this);
+    
+    const resultObj: SceneObject = {
+      id: `obj_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      name: `CSG_${csgOpName.toUpperCase()}`,
+      visible: true,
+      wireframe: this.showWireframe,
+      type: 'mesh',
+      mesh: resultMesh,
+      geometryBackup: resultMesh.geometry.clone(),
+      baseGeometry: resultMesh.geometry.clone(),
+      modifiers: [],
+      materialProps: {
+        color: '#3b82f6',
+        roughness: 0.5,
+        metalness: 0.0,
+        emissive: '#000000',
+        emissiveIntensity: 0,
+        flatShading: this.flatShading,
+      },
+    };
+    resultMesh.userData.id = resultObj.id;
+    const addResult = new AddObjectCommand(resultObj, this);
+
+    const csgComposite = new CompositeCommand([removeA, removeB, addResult], `CSG ${csgOpName.toUpperCase()}`);
+    commandHistory.recordAndExecute(csgComposite, false);
+  }
+
+  public recordTransformChange(
+    objectId: string,
+    prevTransform: { position: THREE.Vector3; rotation: THREE.Euler; scale: THREE.Vector3 },
+    newTransform: { position: THREE.Vector3; rotation: THREE.Euler; scale: THREE.Vector3 },
+    name?: string
+  ): void {
+    commandHistory.recordAndExecute(
+      new TransformCommand(objectId, prevTransform, newTransform, this, name || 'Transformation Objet'),
+      true
+    );
   }
 
   // --- Modifier Stack Management ---
 
-  public addModifier(objectId: string, modifier: ModifierConfig): void {
+  public addModifier(objectId: string, modifier: ModifierConfig, skipHistory = false): void {
     const obj = this.objects.find(o => o.id === objectId);
     if (!obj) return;
+
+    const prevModifiers = JSON.parse(JSON.stringify(obj.modifiers));
+    const newModifiers = JSON.parse(JSON.stringify([...obj.modifiers, modifier]));
+
+    if (!skipHistory) {
+      commandHistory.recordAndExecute(
+        new ModifierChangeCommand(objectId, prevModifiers, newModifiers, this, `Ajout Modificateur: ${modifier.type}`),
+        true
+      );
+    }
 
     obj.modifiers.push(modifier);
     this.reevaluateModifiers(objectId);
     this.notify();
   }
 
-  public removeModifier(objectId: string, modifierId: string): void {
+  public removeModifier(objectId: string, modifierId: string, skipHistory = false): void {
     const obj = this.objects.find(o => o.id === objectId);
     if (!obj) return;
+
+    const prevModifiers = JSON.parse(JSON.stringify(obj.modifiers));
+    const newModifiers = JSON.parse(JSON.stringify(obj.modifiers.filter(m => m.id !== modifierId)));
+
+    if (!skipHistory) {
+      commandHistory.recordAndExecute(
+        new ModifierChangeCommand(objectId, prevModifiers, newModifiers, this, 'Suppression Modificateur'),
+        true
+      );
+    }
 
     obj.modifiers = obj.modifiers.filter(m => m.id !== modifierId);
     this.reevaluateModifiers(objectId);
     this.notify();
   }
 
-  public toggleModifier(objectId: string, modifierId: string): void {
+  public toggleModifier(objectId: string, modifierId: string, skipHistory = false): void {
     const obj = this.objects.find(o => o.id === objectId);
     if (!obj) return;
 
     const mod = obj.modifiers.find(m => m.id === modifierId);
-    if (mod) {
-      mod.enabled = !mod.enabled;
-      this.reevaluateModifiers(objectId);
-      this.notify();
+    if (!mod) return;
+
+    const prevModifiers = JSON.parse(JSON.stringify(obj.modifiers));
+    const newModifiers = JSON.parse(JSON.stringify(obj.modifiers));
+    const targetMod = newModifiers.find((m: any) => m.id === modifierId);
+    if (targetMod) targetMod.enabled = !targetMod.enabled;
+
+    if (!skipHistory) {
+      commandHistory.recordAndExecute(
+        new ModifierChangeCommand(objectId, prevModifiers, newModifiers, this, 'Activer/Désactiver Modificateur'),
+        true
+      );
     }
+
+    mod.enabled = !mod.enabled;
+    this.reevaluateModifiers(objectId);
+    this.notify();
   }
 
   public updateModifier<T extends ModifierConfig>(
     objectId: string,
     modifierId: string,
-    updates: Partial<T>
+    updates: Partial<T>,
+    skipHistory = false
   ): void {
     const obj = this.objects.find(o => o.id === objectId);
     if (!obj) return;
 
     const mod = obj.modifiers.find(m => m.id === modifierId);
-    if (mod) {
-      Object.assign(mod, updates);
-      this.reevaluateModifiers(objectId);
-      this.notify();
+    if (!mod) return;
+
+    const prevModifiers = JSON.parse(JSON.stringify(obj.modifiers));
+    const newModifiers = JSON.parse(JSON.stringify(obj.modifiers));
+    const targetMod = newModifiers.find((m: any) => m.id === modifierId);
+    if (targetMod) Object.assign(targetMod, updates);
+
+    if (!skipHistory) {
+      commandHistory.recordAndExecute(
+        new ModifierChangeCommand(objectId, prevModifiers, newModifiers, this, 'Mise à jour Modificateur'),
+        true
+      );
     }
+
+    Object.assign(mod, updates);
+    this.reevaluateModifiers(objectId);
+    this.notify();
   }
 
   public reevaluateModifiers(objectId: string): void {
@@ -581,36 +711,73 @@ class EditorStore {
     const obj = this.objects.find(o => o.id === objectId);
     if (!obj || !obj.mesh) return;
     const targetGeom = (this.mode === 'edit' && obj.baseGeometry) ? obj.baseGeometry : obj.mesh.geometry;
+    this.pendingGeometrySnapshots.set(objectId, targetGeom.clone());
+    
     const ver = sculptingEngine.getVersioning(targetGeom);
     ver.pushState(targetGeom);
-    this.updateGeometryBackup(objectId, targetGeom);
+  }
+
+  public undo(): boolean {
+    const success = commandHistory.undo();
+    if (!success) {
+      const selObj = this.getSelectedObject();
+      if (selObj && selObj.mesh) {
+        const targetGeom = (this.mode === 'edit' && selObj.baseGeometry) ? selObj.baseGeometry : selObj.mesh.geometry;
+        const ver = sculptingEngine.getVersioning(targetGeom);
+        if (ver.undo(targetGeom)) {
+          this.updateGeometryBackup(selObj.id, targetGeom, true);
+          return true;
+        }
+      }
+    }
+    return success;
+  }
+
+  public redo(): boolean {
+    const success = commandHistory.redo();
+    if (!success) {
+      const selObj = this.getSelectedObject();
+      if (selObj && selObj.mesh) {
+        const targetGeom = (this.mode === 'edit' && selObj.baseGeometry) ? selObj.baseGeometry : selObj.mesh.geometry;
+        const ver = sculptingEngine.getVersioning(targetGeom);
+        if (ver.redo(targetGeom)) {
+          this.updateGeometryBackup(selObj.id, targetGeom, true);
+          return true;
+        }
+      }
+    }
+    return success;
   }
 
   public undoGeometry(): void {
-    const selObj = this.getSelectedObject();
-    if (!selObj || !selObj.mesh) return;
-    const targetGeom = (this.mode === 'edit' && selObj.baseGeometry) ? selObj.baseGeometry : selObj.mesh.geometry;
-    const ver = sculptingEngine.getVersioning(targetGeom);
-    if (ver.undo(targetGeom)) {
-      this.updateGeometryBackup(selObj.id, targetGeom);
-      this.notify();
-    }
+    this.undo();
   }
 
   public redoGeometry(): void {
-    const selObj = this.getSelectedObject();
-    if (!selObj || !selObj.mesh) return;
-    const targetGeom = (this.mode === 'edit' && selObj.baseGeometry) ? selObj.baseGeometry : selObj.mesh.geometry;
-    const ver = sculptingEngine.getVersioning(targetGeom);
-    if (ver.redo(targetGeom)) {
-      this.updateGeometryBackup(selObj.id, targetGeom);
-      this.notify();
-    }
+    this.redo();
   }
 
-  public updateGeometryBackup(objectId: string, newGeometry: THREE.BufferGeometry): void {
+  public canUndo(): boolean {
+    return commandHistory.canUndo();
+  }
+
+  public canRedo(): boolean {
+    return commandHistory.canRedo();
+  }
+
+  public updateGeometryBackup(objectId: string, newGeometry: THREE.BufferGeometry, skipHistory = false): void {
     const obj = this.objects.find(o => o.id === objectId);
     if (!obj || !obj.mesh) return;
+
+    const prevGeom = this.pendingGeometrySnapshots.get(objectId) || obj.baseGeometry?.clone() || obj.geometryBackup?.clone() || obj.mesh.geometry.clone();
+    
+    if (!skipHistory) {
+      commandHistory.recordAndExecute(
+        new GeometryChangeCommand(objectId, prevGeom, newGeometry, this, `Opération Maillage: ${obj.name}`),
+        true
+      );
+    }
+    this.pendingGeometrySnapshots.delete(objectId);
 
     obj.baseGeometry = newGeometry.clone();
     obj.geometryBackup = newGeometry.clone();

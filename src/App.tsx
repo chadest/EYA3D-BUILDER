@@ -11,6 +11,7 @@ import { Viewport3D } from './components/viewport/Viewport3D';
 import { PropertyPanel } from './components/ui/PropertyPanel';
 import { StatusBar } from './components/ui/StatusBar';
 import { InteractivePrimitivePopup } from './components/ui/InteractivePrimitivePopup';
+import { SettingsModal } from './components/ui/settings/SettingsModal';
 import { editorStore } from './store/EditorStore';
 import { addDirectPrimitive } from './core/primitives/interactivePrimitives';
 
@@ -96,6 +97,13 @@ export default function App() {
           onCancelDrawing={() => {
             editorStore.cancelInteractiveDrawing();
           }}
+        />
+
+        {/* Global Settings & Optimization Modal */}
+        <SettingsModal
+          isOpen={editorStore.isSettingsModalOpen}
+          onClose={() => editorStore.closeSettings()}
+          initialTab={editorStore.settingsInitialTab}
         />
       </div>
 

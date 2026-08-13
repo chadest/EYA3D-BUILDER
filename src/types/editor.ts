@@ -20,7 +20,16 @@ export type EditorMode =
   | 'deform';      // Twist, Bend, Lattice Cage
 
 // Sculpting Brush Modes
-export type SculptMode = 'sculpt' | 'clay' | 'inflate' | 'smooth' | 'flatten' | 'pinch' | 'grab';
+export type SculptMode =
+  | 'sculpt'
+  | 'clay'
+  | 'inflate'
+  | 'smooth'
+  | 'flatten'
+  | 'pinch'
+  | 'grab'
+  | 'snakehook'
+  | 'mask';
 
 // CSG Boolean Operations
 type CSGOperation = 'union' | 'subtract' | 'intersect';
@@ -87,6 +96,8 @@ export type ModifierConfig =
   | BendModifierConfig
   | LatticeModifierConfig;
 
+export type SceneObjectType = 'mesh' | 'curve' | 'group' | 'camera' | 'light';
+
 // Object Data in Scene
 export interface TextProps {
   textString: string;
@@ -99,8 +110,10 @@ export interface SceneObject {
   name: string;
   visible: boolean;
   wireframe: boolean;
-  type: 'mesh' | 'curve' | 'group';
+  type: SceneObjectType;
   mesh?: THREE.Mesh;
+  camera?: THREE.PerspectiveCamera;
+  light?: THREE.Light;
   geometryBackup?: THREE.BufferGeometry; // Original geometry before modifiers
   baseGeometry?: THREE.BufferGeometry; // Original non-subdivided/non-modified geometry for control cage
   modifiers: ModifierConfig[];

@@ -11,7 +11,7 @@ import { SculptMode } from '../../types/editor';
 export type FalloffType = 'smoothstep' | 'gaussian' | 'linear' | 'constant';
 
 export interface SculptingBrushConfig {
-  mode: SculptMode | 'clay' | 'grab';
+  mode: SculptMode;
   radius: number;
   strength: number;
   invert: boolean;
@@ -300,6 +300,23 @@ export class SculptingEngine {
         candidateIndices = Array.from({ length: count }, (_, i) => i);
       }
 
+      // Read or initialize mask attribute
+      let maskAttr = geometry.attributes.mask as THREE.BufferAttribute | undefined;
+      let colAttr = geometry.attributes.color as THREE.BufferAttribute | undefined;
+
+      if (mode === 'mask') {
+        if (!maskAttr) {
+          maskAttr = new THREE.BufferAttribute(new Float32Array(count), 1);
+          geometry.setAttribute('mask', maskAttr);
+        }
+        if (!colAttr) {
+          const cols = new Float32Array(count * 3);
+          cols.fill(1.0);
+          colAttr = new THREE.BufferAttribute(cols, 3);
+          geometry.setAttribute('color', colAttr);
+        }
+      }
+
       for (const i of candidateIndices) {
         if (i >= count) continue;
         vPos.fromBufferAttribute(posAttr, i);
@@ -309,7 +326,13 @@ export class SculptingEngine {
 
         const dist = Math.sqrt(distSq);
         const normDist = dist / radius;
-        const w = this.calculateFalloff(normDist, falloff) * effectiveStrength;
+        let w = this.calculateFalloff(normDist, falloff) * effectiveStrength;
+
+        // Apply vertex mask weight protection for non-mask modes
+        const currentMask = maskAttr ? (maskAttr.array as Float32Array)[i] : 0.0;
+        if (mode !== 'mask') {
+          w *= (1.0 - currentMask);
+        }
 
         if (normAttr) vNorm.fromBufferAttribute(normAttr, i);
 
@@ -368,9 +391,41 @@ export class SculptingEngine {
             }
             break;
           }
+
+          case 'snakehook': {
+            // Pull vertices along stroke drag delta + expand slightly along normal
+            if (dragDeltaLocal) {
+              vPos.addScaledVector(dragDeltaLocal, w * 1.5);
+              vPos.addScaledVector(vNorm, w * dragDeltaLocal.length() * 0.3);
+            }
+            break;
+          }
+
+          case 'mask': {
+            // Painting mask weight [0..1]
+            if (maskAttr) {
+              const maskArr = maskAttr.array as Float32Array;
+              const deltaMask = Math.abs(w) * 0.25;
+              const newMask = Math.max(0, Math.min(1.0, invert ? maskArr[i] - deltaMask : maskArr[i] + deltaMask));
+              maskArr[i] = newMask;
+              maskAttr.needsUpdate = true;
+
+              if (colAttr) {
+                const shade = 1.0 - newMask * 0.6;
+                colAttr.setXYZ(i, shade, shade * 0.7, shade * 0.7);
+                colAttr.needsUpdate = true;
+              }
+            }
+            break;
+          }
         }
 
         posAttr.setXYZ(i, vPos.x, vPos.y, vPos.z);
+      }
+
+      if (mode === 'mask' && mesh.material instanceof THREE.MeshStandardMaterial) {
+        mesh.material.vertexColors = true;
+        mesh.material.needsUpdate = true;
       }
     }
 

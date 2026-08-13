@@ -34,6 +34,8 @@ import {
   Eye,
   Camera,
   Code,
+  ShieldAlert,
+  MoveUpRight,
 } from 'lucide-react';
 import * as THREE from 'three';
 import { editorStore } from '../../store/EditorStore';
@@ -50,7 +52,12 @@ import {
   createSweepMeshFromCurve,
   createCatmullRomCurve,
 } from '../../core/splines/splineTool';
-import { applySculptDeformation, remeshUniformly } from '../../core/sculpting/sculptBrush';
+import {
+  applySculptDeformation,
+  remeshUniformly,
+  clearMeshMask,
+  invertMeshMask,
+} from '../../core/sculpting/sculptBrush';
 import { performCSGOperation } from '../../core/csg/csgOperations';
 import { applyTwist, applyBend } from '../../core/deformation/twistBend';
 import { generateDefaultLatticeCage } from '../../core/deformation/lattice';
@@ -217,13 +224,15 @@ export const ToolShelf: React.FC = () => {
   ];
 
   const sculptBrushes: { mode: SculptMode; label: string; icon: React.ReactNode }[] = [
-    { mode: 'sculpt', label: 'Draw / Sculpt', icon: <PenTool className="w-4 h-4" /> },
+    { mode: 'sculpt', label: 'Draw / Sculpt (Standard)', icon: <PenTool className="w-4 h-4" /> },
     { mode: 'clay', label: 'Clay Strips', icon: <Layers className="w-4 h-4" /> },
-    { mode: 'inflate', label: 'Inflate Mesh', icon: <Maximize2 className="w-4 h-4" /> },
+    { mode: 'inflate', label: 'Inflate / Deflate', icon: <Maximize2 className="w-4 h-4" /> },
     { mode: 'smooth', label: 'Smooth Surface', icon: <Zap className="w-4 h-4" /> },
-    { mode: 'flatten', label: 'Flatten Plane', icon: <Minimize2 className="w-4 h-4" /> },
-    { mode: 'pinch', label: 'Pinch / Attract', icon: <Target className="w-4 h-4" /> },
-    { mode: 'grab', label: 'Grab & Drag', icon: <Hand className="w-4 h-4" /> },
+    { mode: 'flatten', label: 'Flatten / Scrape', icon: <Minimize2 className="w-4 h-4" /> },
+    { mode: 'pinch', label: 'Pinch / Crease', icon: <Scissors className="w-4 h-4" /> },
+    { mode: 'grab', label: 'Grab & Move', icon: <Hand className="w-4 h-4" /> },
+    { mode: 'snakehook', label: 'Snake Hook (Extrude Horns/Hair)', icon: <MoveUpRight className="w-4 h-4" /> },
+    { mode: 'mask', label: 'Mask Vertices (Protect Areas)', icon: <ShieldAlert className="w-4 h-4" /> },
   ];
 
   return (
@@ -476,19 +485,64 @@ export const ToolShelf: React.FC = () => {
 
           <div className="h-4 w-px bg-[#2D3139]" />
 
-          {/* Remesh Action */}
-          <button
-            onClick={() => {
-              if (selObj && selObj.mesh) {
-                const newGeom = remeshUniformly(selObj.mesh.geometry);
-                editorStore.updateGeometryBackup(selObj.id, newGeom);
-              }
-            }}
-            className="bg-[#2D3139] hover:bg-[#383D47] border border-[#3D424D] text-white px-2 py-1 rounded text-xs font-semibold transition-colors"
-            title="Uniform Remesh Geometry"
-          >
-            Remesh
-          </button>
+          {/* Remesh & Mask Actions */}
+          <div className="flex items-center space-x-1.5">
+            {/* Falloff Curve Dropdown */}
+            <select
+              value={editorStore.sculptSettings.falloff || 'smoothstep'}
+              onChange={e => {
+                editorStore.sculptSettings.falloff = e.target.value as any;
+                editorStore.notify();
+              }}
+              className="bg-[#0F1113] border border-[#2D3139] text-[#E0E0E0] text-[10px] px-1.5 py-1 rounded focus:outline-none"
+              title="Brush Falloff Curve"
+            >
+              <option value="smoothstep">Smooth</option>
+              <option value="gaussian">Gaussian</option>
+              <option value="linear">Linear</option>
+              <option value="constant">Flat</option>
+            </select>
+
+            {/* Mask Clear & Invert Buttons */}
+            <button
+              onClick={() => {
+                if (selObj && selObj.mesh) {
+                  clearMeshMask(selObj.mesh);
+                  editorStore.notify();
+                }
+              }}
+              className="bg-[#0F1113] hover:bg-[#2D3139] border border-[#2D3139] text-[#8E9299] hover:text-white px-1.5 py-1 rounded text-[10px] transition-colors"
+              title="Clear Vertex Mask"
+            >
+              Clear Mask
+            </button>
+            <button
+              onClick={() => {
+                if (selObj && selObj.mesh) {
+                  invertMeshMask(selObj.mesh);
+                  editorStore.notify();
+                }
+              }}
+              className="bg-[#0F1113] hover:bg-[#2D3139] border border-[#2D3139] text-[#8E9299] hover:text-white px-1.5 py-1 rounded text-[10px] transition-colors"
+              title="Invert Vertex Mask"
+            >
+              Invert Mask
+            </button>
+
+            {/* Remesh Action */}
+            <button
+              onClick={() => {
+                if (selObj && selObj.mesh) {
+                  const newGeom = remeshUniformly(selObj.mesh.geometry);
+                  editorStore.updateGeometryBackup(selObj.id, newGeom);
+                }
+              }}
+              className="bg-[#2D3139] hover:bg-[#383D47] border border-[#3D424D] text-white px-2 py-1 rounded text-xs font-semibold transition-colors"
+              title="Uniform Remesh Geometry"
+            >
+              Remesh
+            </button>
+          </div>
         </div>
       )}
 

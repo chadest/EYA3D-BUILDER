@@ -32,6 +32,7 @@ export class PhysicsEngine {
     // Setup Object Colliders
     editorStore.objects.forEach(obj => {
       if (!obj.mesh) return;
+      if (obj.name === 'Sun Light' || obj.mesh.userData.isSun) return; // The sun should not fall!
       this.setupDynamicCollider(obj.id, obj.mesh);
     });
   }

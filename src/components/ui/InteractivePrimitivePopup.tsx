@@ -22,6 +22,8 @@ import {
   ToggleLeft,
   ToggleRight,
   Type,
+  Video,
+  Sun,
 } from 'lucide-react';
 import {
   InteractivePrimitiveType,
@@ -71,6 +73,9 @@ export const InteractivePrimitivePopup: React.FC<InteractivePrimitivePopupProps>
     { id: 'torus', name: 'Torus', icon: <Disc className="w-4 h-4" />, desc: 'Rayon principal + épaisseur tube' },
     { id: 'star3d', name: 'Étoile 3D', icon: <Star className="w-4 h-4" />, desc: 'Forme étoile 2D + profondeur' },
     { id: 'text', name: 'Texte', icon: <Type className="w-4 h-4" />, desc: 'Plaque de texte 3D personnalisable' },
+    { id: 'camera', name: 'Caméra', icon: <Video className="w-4 h-4" />, desc: 'Caméra de scène' },
+    { id: 'spotlight', name: 'Projecteur', icon: <Sun className="w-4 h-4" />, desc: 'Lumière directionnelle Spot' },
+    { id: 'pointlight', name: 'Ampoule', icon: <Circle className="w-4 h-4" />, desc: 'Point lumineux omnidirectionnel' },
   ];
 
   const getStepText = () => {

@@ -13,6 +13,7 @@ import {
   SculptMode,
   CSGOperation,
 } from '../types/editor';
+import { InteractivePrimitiveType } from '../core/primitives/interactivePrimitives';
 import { SculptBrushSettings } from '../core/sculpting/sculptBrush';
 import { sculptingEngine, FalloffType } from '../core/sculpting/sculptEngine';
 import { processModifierStack } from '../core/parametric/modifiers';
@@ -357,7 +358,7 @@ class EditorStore {
   // Interactive Primitive Drawing State
   public isInteractiveDrawingMode: boolean = false;
   public isPrimitivePopupOpen: boolean = false;
-  public drawingPrimitiveType: 'plane' | 'cube' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'pyramid' | 'star3d' | 'text' = 'cube';
+  public drawingPrimitiveType: InteractivePrimitiveType = 'cube';
   public drawingSnapEnabled: boolean = true;
   public drawingSnapStep: number = 0.5;
   public drawingStep: 'IDLE' | 'DRAWING_BASE' | 'EXTRUDING_HEIGHT' | 'COMPLETED' = 'IDLE';
@@ -448,41 +449,49 @@ class EditorStore {
 
   public addObject(
     name: string,
-    mesh: THREE.Mesh,
-    type: 'mesh' | 'curve' = 'mesh'
+    object: THREE.Object3D,
+    type: 'mesh' | 'curve' | 'group' | 'camera' | 'light' = 'mesh'
   ): SceneObject {
-    const backupGeom = mesh.geometry.clone();
     const obj: SceneObject = {
       id: `obj_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       name,
       visible: true,
       wireframe: this.showWireframe,
       type,
-      mesh,
-      geometryBackup: backupGeom,
-      baseGeometry: backupGeom.clone(),
       modifiers: [],
       materialProps: {
-        color: mesh.userData.colorValue || '#3b82f6',
-        roughness: 0.3,
-        metalness: 0.1,
+        color: '#ffffff',
+        roughness: 0.5,
+        metalness: 0.0,
         emissive: '#000000',
-        emissiveIntensity: 0.0,
-        textureRepeatX: 1,
-        textureRepeatY: 1,
+        emissiveIntensity: 0,
         flatShading: this.flatShading,
       },
     };
 
-    if (mesh.userData.isText) {
-      obj.textProps = {
-        textString: mesh.userData.textValue || 'Eya3D',
-        height: mesh.userData.height !== undefined ? mesh.userData.height : 0.2,
-        size: mesh.userData.size !== undefined ? mesh.userData.size : 1.0,
-      };
+    if (object instanceof THREE.Mesh) {
+      obj.mesh = object;
+      obj.geometryBackup = object.geometry.clone();
+      obj.baseGeometry = object.geometry.clone();
+      obj.materialProps.color = object.userData.colorValue || '#3b82f6';
+      
+      if (object.userData.isText) {
+          obj.textProps = {
+            textString: object.userData.textValue || 'Eya3D',
+            height: object.userData.height !== undefined ? object.userData.height : 0.2,
+            size: object.userData.size !== undefined ? object.userData.size : 1,
+          };
+      }
+    } else if (object instanceof THREE.PerspectiveCamera) {
+      obj.camera = object;
+    } else if (object instanceof THREE.Light) {
+      obj.light = object;
+    } else {
+      // Assume group or container
+      obj.mesh = object as any;
     }
 
-    mesh.userData.id = obj.id;
+    object.userData.id = obj.id;
     this.objects.push(obj);
     this.selectedObjectId = obj.id;
     this.notify();

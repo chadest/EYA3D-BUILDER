@@ -34,21 +34,68 @@ export interface SculptBrushSettings {
   invert: boolean;
 }
 
+export { SculptCursorGizmo, createSculptGizmo } from './sculptCursorGizmo';
+
 /**
- * Creates 3D Spherical Brush Gizmo mesh for visual sculpting feedback.
+ * Clears all vertex masks on mesh geometry
  */
-export function createSculptGizmo(): THREE.Mesh {
-  const geom = new THREE.SphereGeometry(1, 24, 24);
-  const mat = new THREE.MeshBasicMaterial({
-    color: 0x00e5ff,
-    wireframe: true,
-    transparent: true,
-    opacity: 0.5,
-    depthTest: false,
-  });
-  const gizmo = new THREE.Mesh(geom, mat);
-  gizmo.visible = false;
-  return gizmo;
+export function clearMeshMask(mesh: THREE.Mesh): void {
+  const geometry = mesh.geometry;
+  const posAttr = geometry.attributes.position;
+  if (!posAttr) return;
+
+  const count = posAttr.count;
+  const maskAttr = new Float32Array(count);
+  geometry.setAttribute('mask', new THREE.BufferAttribute(maskAttr, 1));
+
+  // Clear vertex colors back to white
+  if (geometry.attributes.color) {
+    const colAttr = geometry.attributes.color as THREE.BufferAttribute;
+    for (let i = 0; i < count; i++) {
+      colAttr.setXYZ(i, 1.0, 1.0, 1.0);
+    }
+    colAttr.needsUpdate = true;
+  }
+}
+
+/**
+ * Inverts vertex mask weights on mesh geometry
+ */
+export function invertMeshMask(mesh: THREE.Mesh): void {
+  const geometry = mesh.geometry;
+  const posAttr = geometry.attributes.position;
+  if (!posAttr) return;
+
+  const count = posAttr.count;
+  let maskAttr = geometry.attributes.mask as THREE.BufferAttribute;
+  if (!maskAttr) {
+    maskAttr = new THREE.BufferAttribute(new Float32Array(count), 1);
+    geometry.setAttribute('mask', maskAttr);
+  }
+
+  const maskArray = maskAttr.array as Float32Array;
+  let colAttr = geometry.attributes.color as THREE.BufferAttribute;
+  if (!colAttr) {
+    const cols = new Float32Array(count * 3);
+    cols.fill(1.0);
+    colAttr = new THREE.BufferAttribute(cols, 3);
+    geometry.setAttribute('color', colAttr);
+  }
+
+  for (let i = 0; i < count; i++) {
+    const invVal = 1.0 - maskArray[i];
+    maskArray[i] = invVal;
+    const shade = 1.0 - invVal * 0.6;
+    colAttr.setXYZ(i, shade, shade * 0.7, shade * 0.7);
+  }
+
+  maskAttr.needsUpdate = true;
+  colAttr.needsUpdate = true;
+  
+  if (mesh.material instanceof THREE.MeshStandardMaterial) {
+    mesh.material.vertexColors = true;
+    mesh.material.needsUpdate = true;
+  }
 }
 
 /**

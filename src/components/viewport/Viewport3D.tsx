@@ -11,7 +11,7 @@ import { TransformControls } from 'three/examples/jsm/controls/TransformControls
 import { SelectionBox } from 'three/examples/jsm/interactive/SelectionBox.js';
 import { SelectionHelper } from 'three/examples/jsm/interactive/SelectionHelper.js';
 import { editorStore } from '../../store/EditorStore';
-import { createSculptGizmo } from '../../core/sculpting/sculptBrush';
+import { createSculptGizmo, SculptCursorGizmo } from '../../core/sculpting/sculptCursorGizmo';
 import { sculptingEngine, SculptingBrushConfig } from '../../core/sculpting/sculptEngine';
 import {
   createCatmullRomCurve,
@@ -29,6 +29,7 @@ import {
 import { createTextPrimitiveMesh } from '../../core/primitives/textPrimitive';
 import { Trash2, Camera } from 'lucide-react';
 import { InteractivePrimitivePopup } from '../ui/InteractivePrimitivePopup';
+import { CameraPreviewWidget } from '../ui/CameraPreviewWidget';
 import { TransformToolbar } from '../ui/TransformToolbar';
 import { NavigationToolbar } from '../ui/NavigationToolbar';
 import { AIChatButton } from '../ui/AIChatButton';
@@ -266,7 +267,7 @@ export const Viewport3D: React.FC = () => {
   const transformRef = useRef<TransformControls | null>(null);
 
   // Visual Helper Objects
-  const sculptGizmoRef = useRef<THREE.Mesh | null>(null);
+  const sculptGizmoRef = useRef<SculptCursorGizmo | null>(null);
   const curveLineRef = useRef<THREE.Line | null>(null);
   const curveHandlesRef = useRef<THREE.Group>(new THREE.Group());
   const selectionGizmoRef = useRef<THREE.Group>(new THREE.Group());
@@ -275,8 +276,6 @@ export const Viewport3D: React.FC = () => {
   const cycloramaRef = useRef<StudioCyclorama | null>(null);
   const planeRef = useRef<THREE.Mesh | null>(null);
   const xRayWireframeMapRef = useRef<Map<string, THREE.LineSegments>>(new Map());
-  const interactiveSunRef = useRef<THREE.DirectionalLight | null>(null);
-  const sunGizmoMeshRef = useRef<THREE.Mesh | null>(null);
 
   const isSculptingRef = useRef<boolean>(false);
   const isShiftPressedRef = useRef<boolean>(false);
@@ -382,6 +381,35 @@ export const Viewport3D: React.FC = () => {
       editorStore.addObject('Texte', mesh);
       return;
     }
+
+    if (type === 'camera') {
+      const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 1000);
+      const helper = new THREE.CameraHelper(camera);
+      // We don't have a direct "mesh" for the camera, so we'll wrap it in a group with a visible helper
+      const group = new THREE.Group();
+      group.add(camera);
+      group.add(helper);
+      group.position.set(0, 2, 5);
+      editorStore.addObject('Caméra', group as any, 'camera');
+      return;
+    }
+
+    if (type === 'spotlight' || type === 'pointlight') {
+      const light = type === 'spotlight' 
+        ? new THREE.SpotLight(0xffffff, 10) 
+        : new THREE.PointLight(0xffffff, 10);
+      const helper = type === 'spotlight' 
+        ? new THREE.SpotLightHelper(light as THREE.SpotLight)
+        : new THREE.PointLightHelper(light as THREE.PointLight);
+      
+      const group = new THREE.Group();
+      group.add(light);
+      group.add(helper);
+      group.position.set(0, 2, 0);
+      editorStore.addObject(type === 'spotlight' ? 'Projecteur' : 'Ampoule', group as any, 'light');
+      return;
+    }
+
     const geom = generatePrimitiveGeometry(type, {
       baseWidth: 1,
       baseDepth: 1,
@@ -487,6 +515,13 @@ export const Viewport3D: React.FC = () => {
           transformRef.current.showY = !transformRef.current.showY;
         } else if (key === 'z' && transformRef.current) {
           transformRef.current.showZ = !transformRef.current.showZ;
+        } else if (key === 'f' && editorStore.mode === 'sculpt') {
+          e.preventDefault();
+          if (e.shiftKey) {
+            sculptGizmoRef.current?.setMode('adjust_strength', undefined, editorStore.sculptSettings.strength);
+          } else {
+            sculptGizmoRef.current?.setMode('adjust_radius', editorStore.sculptSettings.radius);
+          }
         }
       }
     };
@@ -494,6 +529,9 @@ export const Viewport3D: React.FC = () => {
     const handleKeyUp = (e: KeyboardEvent) => {
       if (e.key === 'Shift') {
         isShiftPressedRef.current = false;
+      }
+      if (e.key.toLowerCase() === 'f' && sculptGizmoRef.current) {
+        sculptGizmoRef.current.setMode('active');
       }
     };
 
@@ -1122,51 +1160,58 @@ export const Viewport3D: React.FC = () => {
     editorStore.activeThreeRenderer = renderer;
 
     // 4. LIGHTING SYSTEM
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
-    scene.add(ambientLight);
-
-    // Interactive Sun & Emissive Physical Mesh (Directional Light + Glowing Sphere)
-    const sunSettings = editorStore.sunSettings;
-    const sunLight = new THREE.DirectionalLight(sunSettings.color, sunSettings.intensity);
-    sunLight.position.set(...sunSettings.position);
-    sunLight.target.position.set(...sunSettings.target);
-    sunLight.castShadow = sunSettings.castShadow;
-    sunLight.shadow.mapSize.width = 2048;
-    sunLight.shadow.mapSize.height = 2048;
-    sunLight.shadow.bias = sunSettings.shadowBias;
+    const workLightGroup = new THREE.Group();
+    workLightGroup.name = 'WorkLightGroup';
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+    workLightGroup.add(ambientLight);
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.8);
+    workLightGroup.add(hemiLight);
+    scene.add(workLightGroup);
     
-    // Expand shadow camera frustum to encompass the workspace and cyclorama cleanly
-    sunLight.shadow.camera.near = 0.5;
-    sunLight.shadow.camera.far = 150;
-    sunLight.shadow.camera.left = -35;
-    sunLight.shadow.camera.right = 35;
-    sunLight.shadow.camera.top = 35;
-    sunLight.shadow.camera.bottom = -35;
-    sunLight.shadow.camera.updateProjectionMatrix();
+    // Track work lights for later toggling
+    (scene as any).workLightGroup = workLightGroup;
 
-    scene.add(sunLight);
-    scene.add(sunLight.target);
-    interactiveSunRef.current = sunLight;
+    // Ensure Sun Light SceneObject exists
+    let sunObj = editorStore.objects.find(o => o.name === 'Sun Light');
+    if (!sunObj) {
+      const sunSettings = editorStore.sunSettings;
+      const sunGeo = new THREE.SphereGeometry(0.8, 32, 32);
+      const sunMat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(sunSettings.color),
+        emissive: new THREE.Color(sunSettings.color),
+        emissiveIntensity: 5.0,
+        roughness: 0.1,
+        metalness: 0.1,
+      });
+      const sunMesh = new THREE.Mesh(sunGeo, sunMat);
+      sunMesh.position.set(...sunSettings.position);
+      sunMesh.scale.setScalar(sunSettings.scale);
+      sunMesh.name = 'InteractiveSunMesh';
 
-    // Physical Sun Mesh with Emissive Material for Real Bloom Glow
-    const sunGeo = new THREE.SphereGeometry(0.8, 32, 32);
-    const sunMat = new THREE.MeshStandardMaterial({
-      color: new THREE.Color(sunSettings.color),
-      emissive: new THREE.Color(sunSettings.color),
-      emissiveIntensity: 5.0,
-      roughness: 0.1,
-      metalness: 0.1,
-    });
-    const sunMesh = new THREE.Mesh(sunGeo, sunMat);
-    sunMesh.position.set(...sunSettings.position);
-    sunMesh.scale.setScalar(sunSettings.scale);
-    sunMesh.name = 'InteractiveSunMesh';
-    scene.add(sunMesh);
-    sunGizmoMeshRef.current = sunMesh;
+      const sunLight = new THREE.DirectionalLight(sunSettings.color, sunSettings.intensity);
+      sunLight.castShadow = sunSettings.castShadow;
+      sunLight.shadow.mapSize.width = 2048;
+      sunLight.shadow.mapSize.height = 2048;
+      sunLight.shadow.bias = sunSettings.shadowBias;
+      
+      // Expand shadow camera frustum to encompass the workspace and cyclorama cleanly
+      sunLight.shadow.camera.near = 0.5;
+      sunLight.shadow.camera.far = 150;
+      sunLight.shadow.camera.left = -35;
+      sunLight.shadow.camera.right = 35;
+      sunLight.shadow.camera.top = 35;
+      sunLight.shadow.camera.bottom = -35;
+      sunLight.shadow.camera.updateProjectionMatrix();
 
-    const dirLight2 = new THREE.DirectionalLight(0x4a90e2, 0.3);
-    dirLight2.position.set(-8, -6, -8);
-    scene.add(dirLight2);
+      sunMesh.add(sunLight);
+      sunLight.target.position.set(0, -1, 0); // Point downwards relative to sun
+      sunMesh.add(sunLight.target);
+      
+      sunMesh.userData.isSun = true;
+      sunMesh.userData.directionalLight = sunLight;
+      
+      editorStore.addObject('Sun Light', sunMesh);
+    }
 
     // 5. GRID & AXES HELPERS
     const gridHelper = new THREE.GridHelper(20, 20, 0x4a90e2, 0x2d3139);
@@ -1243,7 +1288,7 @@ export const Viewport3D: React.FC = () => {
     renderer.domElement.addEventListener('pointerup', onGizmoPointerUp, { capture: true });
 
     // 8. SCULPT GIZMO & HELPER GROUPS
-    const sculptGizmo = createSculptGizmo();
+    const sculptGizmo = createSculptGizmo() as SculptCursorGizmo;
     scene.add(sculptGizmo);
     sculptGizmoRef.current = sculptGizmo;
 
@@ -1280,22 +1325,35 @@ export const Viewport3D: React.FC = () => {
         physicsEngine.step();
       }
 
-      // Sync sun light position with physical sun mesh position
-      if (sunGizmoMeshRef.current && interactiveSunRef.current) {
-        interactiveSunRef.current.position.copy(sunGizmoMeshRef.current.position);
-        // Update store position if dragged
+      // Sync sun position from mesh back to settings if it was moved via gizmo
+      const sunObj = editorStore.objects.find(o => o.name === 'Sun Light');
+      if (sunObj && sunObj.mesh) {
+        const meshPos = sunObj.mesh.position;
         const curPos = editorStore.sunSettings.position;
-        const newPos: [number, number, number] = [
-          sunGizmoMeshRef.current.position.x,
-          sunGizmoMeshRef.current.position.y,
-          sunGizmoMeshRef.current.position.z,
-        ];
         if (
-          Math.abs(curPos[0] - newPos[0]) > 0.001 ||
-          Math.abs(curPos[1] - newPos[1]) > 0.001 ||
-          Math.abs(curPos[2] - newPos[2]) > 0.001
+          Math.abs(curPos[0] - meshPos.x) > 0.001 ||
+          Math.abs(curPos[1] - meshPos.y) > 0.001 ||
+          Math.abs(curPos[2] - meshPos.z) > 0.001
         ) {
-          editorStore.setSunPosition(newPos);
+          editorStore.setSunPosition([meshPos.x, meshPos.y, meshPos.z]);
+        }
+      }
+
+      // Handle Render Mode vs Edit Mode (Shadows and Work Lights)
+      if (rendererRef.current && sceneRef.current) {
+        const isRender = editorStore.isRenderMode;
+        rendererRef.current.shadowMap.enabled = isRender;
+        
+        const workLights = (sceneRef.current as any).workLightGroup;
+        if (workLights) {
+          workLights.visible = !isRender;
+        }
+
+        // Hide transform controls in render mode completely to clear the screen, EXCEPT for the sun
+        if (transformRef.current) {
+          if (isRender && transformRef.current.object && !transformRef.current.object.userData.isSun) {
+            transformRef.current.detach();
+          }
         }
       }
 
@@ -1422,11 +1480,26 @@ export const Viewport3D: React.FC = () => {
         }
       }
 
+      const isSelectedSun = transformControls.object?.userData?.isSun;
+
       if (editorStore.isRenderMode) {
         gridHelper.visible = false;
         axesHelper.visible = false;
-        transformControls.enabled = false;
-        transformControls.getHelper().visible = false;
+        // Allow the transform gizmo ONLY for the Sun in Render Mode so we can position it and see shadows update
+        transformControls.enabled = isSelectedSun ? true : false;
+        transformControls.getHelper().visible = isSelectedSun ? true : false;
+        
+        // Hide all camera and light helpers
+        editorStore.objects.forEach(obj => {
+          if (obj.type === 'camera' || obj.type === 'light') {
+            obj.mesh?.traverse(child => {
+              if (child.type === 'CameraHelper' || child.type.includes('Helper')) {
+                child.visible = false;
+              }
+            });
+          }
+        });
+        
         renderPipeline.enableRenderEnvironment(scene);
         renderPipeline.render(renderer, scene, camera);
       } else {
@@ -1434,6 +1507,18 @@ export const Viewport3D: React.FC = () => {
         axesHelper.visible = true;
         transformControls.enabled = true;
         transformControls.getHelper().visible = true;
+
+        // Restore camera/light helpers
+        editorStore.objects.forEach(obj => {
+          if (obj.type === 'camera' || obj.type === 'light') {
+            obj.mesh?.traverse(child => {
+              if (child.type === 'CameraHelper' || child.type.includes('Helper')) {
+                child.visible = true;
+              }
+            });
+          }
+        });
+        
         renderPipeline.disableRenderEnvironment(scene);
         renderer.render(scene, camera);
       }
@@ -1532,20 +1617,36 @@ export const Viewport3D: React.FC = () => {
 
   // Sync Interactive Sun and Gizmo visibility with store settings and render mode
   useEffect(() => {
-    if (interactiveSunRef.current) {
-      interactiveSunRef.current.color.set(editorStore.sunSettings.color);
-      interactiveSunRef.current.intensity = editorStore.sunSettings.intensity;
-      interactiveSunRef.current.position.set(...editorStore.sunSettings.position);
-      interactiveSunRef.current.castShadow = editorStore.sunSettings.castShadow;
-      interactiveSunRef.current.shadow.bias = editorStore.sunSettings.shadowBias;
-    }
-    if (sunGizmoMeshRef.current) {
-      sunGizmoMeshRef.current.position.set(...editorStore.sunSettings.position);
-      sunGizmoMeshRef.current.scale.setScalar(editorStore.sunSettings.scale);
-      // In render mode, the physical sun mesh remains visible in the sky/scene, but gizmo is hidden or not transformable
-      sunGizmoMeshRef.current.visible = true; // Physical solid sun is always visible in scene
-
-      const sunMat = sunGizmoMeshRef.current.material as THREE.MeshStandardMaterial;
+    const sunObj = editorStore.objects.find(o => o.name === 'Sun Light');
+    if (sunObj && sunObj.mesh && sunObj.mesh.userData.isSun) {
+      const sunMesh = sunObj.mesh;
+      const sunLight = sunMesh.userData.directionalLight as THREE.DirectionalLight;
+      
+      if (sunLight) {
+        sunLight.color.set(editorStore.sunSettings.color);
+        sunLight.intensity = editorStore.sunSettings.intensity;
+        sunLight.castShadow = editorStore.sunSettings.castShadow;
+        sunLight.shadow.bias = editorStore.sunSettings.shadowBias;
+        
+        // Disable the directional light completely in edit mode to avoid edit shadows
+        sunLight.visible = editorStore.isRenderMode;
+      }
+      
+      // Update sun mesh visual scale and position based on settings if needed
+      // (Position is normally driven by the transform gizmo, but we sync scale and color)
+      sunMesh.scale.setScalar(editorStore.sunSettings.scale);
+      
+      const newPos = new THREE.Vector3(...editorStore.sunSettings.position);
+      if (sunMesh.position.distanceTo(newPos) > 0.01) {
+        sunMesh.position.copy(newPos);
+      }
+      
+      // Keep store materialProps in sync with sunSettings for UI consistency
+      sunObj.materialProps.color = editorStore.sunSettings.color;
+      sunObj.materialProps.emissive = editorStore.sunSettings.color;
+      sunObj.materialProps.emissiveIntensity = 5.0;
+      
+      const sunMat = sunMesh.material as THREE.MeshStandardMaterial;
       if (sunMat && sunMat.color && sunMat.emissive) {
         sunMat.color.set(editorStore.sunSettings.color);
         sunMat.emissive.set(editorStore.sunSettings.color);
@@ -1553,7 +1654,7 @@ export const Viewport3D: React.FC = () => {
         sunMat.needsUpdate = true;
       }
     }
-  }, [editorStore.sunSettings, editorStore.isRenderMode]);
+  }, [editorStore.sunSettings, editorStore.isRenderMode, editorStore.objects]);
 
   // Raycasting Mouse Interaction Handler for Selection & Sculpting
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -1652,16 +1753,46 @@ export const Viewport3D: React.FC = () => {
     if (editorStore.mode === 'sculpt' && selObj && selObj.mesh) {
       if (controlsRef.current) controlsRef.current.enabled = !isSculptingRef.current;
 
+      // Check if gizmo is in adjust_radius or adjust_strength interactive mode
+      if (sculptGizmoRef.current && (sculptGizmoRef.current.gizmoMode === 'adjust_radius' || sculptGizmoRef.current.gizmoMode === 'adjust_strength')) {
+        if (e.movementX !== 0) {
+          if (sculptGizmoRef.current.gizmoMode === 'adjust_radius') {
+            const deltaR = e.movementX * 0.015;
+            editorStore.sculptSettings.radius = Math.max(0.05, Math.min(10.0, editorStore.sculptSettings.radius + deltaR));
+          } else {
+            const deltaS = e.movementX * 0.008;
+            editorStore.sculptSettings.strength = Math.max(0.01, Math.min(1.0, editorStore.sculptSettings.strength + deltaS));
+          }
+          sculptGizmoRef.current.updateVisuals(
+            editorStore.sculptSettings.radius,
+            editorStore.sculptSettings.strength,
+            editorStore.sculptSettings.falloff
+          );
+          editorStore.notify();
+        }
+      }
+
       const intersects = raycaster.intersectObject(selObj.mesh);
 
       if (intersects.length > 0) {
         const hit = intersects[0];
 
-        if (sculptGizmoRef.current) {
-          sculptGizmoRef.current.visible = true;
-          sculptGizmoRef.current.position.copy(hit.point);
+        if (sculptGizmoRef.current && hit.face) {
+          const hitNormalWorld = hit.face.normal.clone().transformDirection(selObj.mesh.matrixWorld).normalize();
           const r = editorStore.sculptSettings.radius;
-          sculptGizmoRef.current.scale.set(r, r, r);
+
+          sculptGizmoRef.current.updatePositionAndOrientation(
+            hit.point,
+            hitNormalWorld,
+            selObj.mesh,
+            r
+          );
+
+          sculptGizmoRef.current.updateVisuals(
+            r,
+            editorStore.sculptSettings.strength,
+            editorStore.sculptSettings.falloff
+          );
         }
 
         if (isSculptingRef.current && hit.face) {
@@ -1703,10 +1834,16 @@ export const Viewport3D: React.FC = () => {
           editorStore.notify();
         }
       } else {
-        if (sculptGizmoRef.current) sculptGizmoRef.current.visible = false;
+        if (sculptGizmoRef.current) {
+          sculptGizmoRef.current.setHovering(false);
+          sculptGizmoRef.current.tickOpacity();
+        }
       }
     } else {
-      if (sculptGizmoRef.current) sculptGizmoRef.current.visible = false;
+      if (sculptGizmoRef.current) {
+        sculptGizmoRef.current.setHovering(false);
+        sculptGizmoRef.current.tickOpacity();
+      }
       if (controlsRef.current) controlsRef.current.enabled = true;
       
       // Face Hover Raycasting in Edit Mode
@@ -2198,6 +2335,7 @@ export const Viewport3D: React.FC = () => {
           <NavigationToolbar />
         </div>
       </div>
+      <CameraPreviewWidget />
 
       {/* 2. Low-profile Bottom-Left Coordinates Display */}
       {selObj && selObj.mesh && (

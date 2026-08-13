@@ -16,7 +16,10 @@ export type InteractivePrimitiveType =
   | 'torus'
   | 'pyramid'
   | 'star3d'
-  | 'text';
+  | 'text'
+  | 'camera'
+  | 'spotlight'
+  | 'pointlight';
 
 export type DrawingStep = 'IDLE' | 'DRAWING_BASE' | 'EXTRUDING_HEIGHT' | 'COMPLETED';
 

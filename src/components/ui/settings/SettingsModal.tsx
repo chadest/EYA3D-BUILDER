@@ -30,6 +30,7 @@ import { ThemesTab } from './ThemesTab';
 import { ShortcutsTab } from './ShortcutsTab';
 import { threeOptimizationEngine } from '../../../core/optimization/threeOptimizationEngine';
 import { editorStore } from '../../../store/EditorStore';
+import { useTranslation } from '../../../context/LanguageContext';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -42,6 +43,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onClose,
   initialTab = 'optimization',
 }) => {
+  const { language, setLanguage, t } = useTranslation();
+
   // Global Settings State management
   const [activeTab, setActiveTab] = useState<'optimization' | 'languages' | 'themes' | 'shortcuts'>(initialTab);
   
@@ -56,7 +59,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     viewportBgStyle: 'dark_charcoal',
   }));
 
-  const [currentLanguage, setCurrentLanguage] = useState<SupportedLanguage>('fr');
   const [saveToast, setSaveToast] = useState<boolean>(false);
 
   // Synchronise le premier affichage et le focus
@@ -108,7 +110,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     });
     editorStore.themeMode = 'dark';
     editorStore.notify();
-    setCurrentLanguage('fr');
+    setLanguage('fr');
 
     setSaveToast(true);
     setTimeout(() => setSaveToast(false), 3000);
@@ -135,27 +137,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   }> = [
     {
       id: 'optimization',
-      label: 'Optimisation',
-      description: 'VRAM, Cache & Three.js Engine',
+      label: t.sidebar.optimization,
+      description: t.sidebar.optimizationDesc,
       icon: <Zap className="w-4 h-4" />,
       badge: 'GPU',
     },
     {
       id: 'languages',
-      label: 'Langues',
-      description: 'Localisation & Traductions',
+      label: t.sidebar.language,
+      description: t.sidebar.languageDesc,
       icon: <Languages className="w-4 h-4" />,
     },
     {
       id: 'themes',
-      label: 'Thèmes',
-      description: 'Mode Jour / Nuit & Couleurs',
+      label: t.sidebar.themes,
+      description: t.sidebar.themesDesc,
       icon: <SunMoon className="w-4 h-4" />,
     },
     {
       id: 'shortcuts',
-      label: 'Raccourcis',
-      description: 'Commandes clavier & Hotkeys',
+      label: t.sidebar.shortcuts,
+      description: t.sidebar.shortcutsDesc,
       icon: <Keyboard className="w-4 h-4" />,
     },
   ];
@@ -184,20 +186,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
             <div>
               <h2 id="settings-modal-title" className="text-sm font-bold text-slate-100 flex items-center space-x-2">
-                <span>Paramètres de l'Application</span>
+                <span>{t.optimization.modalTitle}</span>
                 <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
-                  Eya3D Studio v1.0
+                  {t.common.version}
                 </span>
               </h2>
               <p className="text-[11px] text-slate-400">
-                Configuration avancée du moteur 3D Three.js, mémoire GPU et espace de travail
+                {t.optimization.modalSubtitle}
               </p>
             </div>
           </div>
 
           <button
             onClick={onClose}
-            aria-label="Fermer les paramètres"
+            aria-label={t.common.close}
             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-[#222733] transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
@@ -212,7 +214,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             className="w-full md:w-64 bg-[#12141A] border-b md:border-b-0 md:border-r border-[#202530] p-3 flex flex-row md:flex-col justify-start space-x-1 md:space-x-0 md:space-y-1.5 overflow-x-auto md:overflow-x-visible flex-shrink-0"
           >
             <div className="hidden md:block px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-300">
-              Catégories
+              {t.sidebar.categories}
             </div>
 
             {sidebarTabs.map(tab => {
@@ -264,12 +266,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div className="flex items-center justify-between text-[11px] text-slate-400">
                 <span className="flex items-center space-x-1.5">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  <span>Moteur Three.js</span>
+                  <span>{t.sidebar.engineStatus}</span>
                 </span>
-                <span className="font-mono text-emerald-400">Prêt</span>
+                <span className="font-mono text-emerald-400">{t.sidebar.engineReady}</span>
               </div>
               <div className="text-[10px] text-slate-400 leading-tight">
-                VRAM gérée automatiquement par le cycle de vie des maillages.
+                {t.sidebar.vramNotice}
               </div>
             </div>
           </div>
@@ -283,7 +285,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <OptimizationTab settings={optimizationConfig} onChange={handleUpdateOptimization} />
             )}
             {activeTab === 'languages' && (
-              <LanguagesTab currentLanguage={currentLanguage} onChangeLanguage={setCurrentLanguage} />
+              <LanguagesTab currentLanguage={language} onChangeLanguage={setLanguage} />
             )}
             {activeTab === 'themes' && (
               <ThemesTab settings={themeConfig} onChange={updates => setThemeConfig(prev => ({ ...prev, ...updates }))} />
@@ -300,13 +302,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               className="flex items-center space-x-1.5 text-xs text-slate-400 hover:text-slate-200 px-3 py-2 rounded-lg hover:bg-[#1E232E] border border-transparent hover:border-[#2D3340] transition-colors cursor-pointer"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              <span>Valeurs par défaut</span>
+              <span>{t.common.reset}</span>
             </button>
 
             {saveToast && (
               <span className="text-xs text-emerald-400 flex items-center space-x-1 bg-emerald-500/10 border border-emerald-500/20 px-2 py-1 rounded">
                 <Check className="w-3.5 h-3.5" />
-                <span>Paramètres réinitialisés</span>
+                <span>{t.common.success}</span>
               </span>
             )}
           </div>
@@ -316,14 +318,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               onClick={onClose}
               className="px-4 py-2 rounded-lg text-xs font-medium text-slate-300 hover:text-white bg-[#1A1D24] hover:bg-[#222630] border border-[#2E3442] transition-colors cursor-pointer"
             >
-              Annuler
+              {t.common.cancel}
             </button>
             <button
               onClick={handleSaveAndClose}
               className="flex items-center space-x-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 shadow-md shadow-blue-600/20 transition-all cursor-pointer"
             >
               <Check className="w-3.5 h-3.5" />
-              <span>Appliquer et Fermer</span>
+              <span>{t.common.applyAndClose}</span>
             </button>
           </div>
         </div>
@@ -331,3 +333,4 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     </div>
   );
 };
+

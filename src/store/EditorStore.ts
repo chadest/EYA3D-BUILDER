@@ -13,6 +13,14 @@ import {
   SculptMode,
   CSGOperation,
 } from '../types/editor';
+import {
+  DrawToolType,
+  SketchEntity,
+  SketchSettings,
+  ClosedProfile,
+  SnapPoint,
+} from '../types/drawing';
+import { CadDrawingEngine } from '../core/drawing/cadDrawingEngine';
 import { InteractivePrimitiveType } from '../core/primitives/interactivePrimitives';
 import { SculptBrushSettings } from '../core/sculpting/sculptBrush';
 import { sculptingEngine, FalloffType } from '../core/sculpting/sculptEngine';
@@ -76,6 +84,29 @@ class EditorStore {
     new THREE.Vector3(2, 0.5, 0),
     new THREE.Vector3(3, 2, 0),
   ];
+
+  // 2D CAD Sketching & Drawing State
+  public activeDrawTool: DrawToolType = 'LINE';
+  public sketchEntities: SketchEntity[] = [];
+  public sketchSettings: SketchSettings = {
+    gridSnapEnabled: true,
+    gridStep: 0.5,
+    objectSnapEnabled: true,
+    orthoLockEnabled: false,
+    polarAngleStep: 90,
+    showDimensions: true,
+    showSnapGuides: true,
+    filletRadius: 0.5,
+    offsetDistance: 0.5,
+    extrudeHeight: 1.0,
+  };
+  public sketchProfiles: ClosedProfile[] = [];
+  public activeSnapPoint: SnapPoint | null = null;
+  public sketchHoveredEntityId: string | null = null;
+  public sketchSelectedEntityIds: string[] = [];
+  public isDrawingLocked2D: boolean = false;
+  public onForce2DCameraLookAt: (() => void) | null = null;
+  public onUnlock3DCamera: (() => void) | null = null;
 
   // CSG Selections
   public csgPrimaryId: string | null = null;
@@ -475,6 +506,7 @@ class EditorStore {
 
   public setMode(newMode: EditorMode): void {
     this.checkOtherToggle();
+    const prevMode = this.mode;
     this.mode = newMode;
     if (newMode === 'edit') {
       if (this.selectionLevel === 'object') this.selectionLevel = 'face';
@@ -482,8 +514,162 @@ class EditorStore {
       this.activeTool = 'sculpt';
     } else if (newMode === 'curve') {
       this.activeTool = 'drawCurve';
+      // Lock Camera to orthogonal 2D face view for Drawing CAD
+      this.isDrawingLocked2D = true;
+      if (this.onForce2DCameraLookAt) {
+        this.onForce2DCameraLookAt();
+      }
+    }
+
+    if (prevMode === 'curve' && newMode !== 'curve') {
+      this.isDrawingLocked2D = false;
+      if (this.onUnlock3DCamera) {
+        this.onUnlock3DCamera();
+      }
+    }
+
+    this.notify();
+  }
+
+  // --- CAD 2D Sketching Actions ---
+  public setActiveDrawTool(tool: DrawToolType): void {
+    this.activeDrawTool = tool;
+    this.notify();
+  }
+
+  public setDrawingLocked2D(locked: boolean): void {
+    this.isDrawingLocked2D = locked;
+    if (locked && this.onForce2DCameraLookAt) {
+      this.onForce2DCameraLookAt();
+    } else if (!locked && this.onUnlock3DCamera) {
+      this.onUnlock3DCamera();
     }
     this.notify();
+  }
+
+  public updateSketchSettings(settings: Partial<SketchSettings>): void {
+    this.sketchSettings = { ...this.sketchSettings, ...settings };
+    this.notify();
+  }
+
+  public addSketchEntity(entity: SketchEntity): void {
+    this.sketchEntities.push(entity);
+    this.recomputeSketchProfiles();
+    this.notify();
+  }
+
+  public removeSketchEntity(id: string): void {
+    this.sketchEntities = this.sketchEntities.filter(e => e.id !== id);
+    this.sketchSelectedEntityIds = this.sketchSelectedEntityIds.filter(selId => selId !== id);
+    this.recomputeSketchProfiles();
+    this.notify();
+  }
+
+  public deleteSketchEntities(ids: string[]): void {
+    this.sketchEntities = this.sketchEntities.filter(e => !ids.includes(e.id));
+    this.sketchSelectedEntityIds = this.sketchSelectedEntityIds.filter(selId => !ids.includes(selId));
+    this.recomputeSketchProfiles();
+    this.notify();
+  }
+
+  public clearSketch(): void {
+    this.sketchEntities = [];
+    this.sketchProfiles = [];
+    this.sketchSelectedEntityIds = [];
+    this.sketchHoveredEntityId = null;
+    this.notify();
+  }
+
+  public recomputeSketchProfiles(): void {
+    this.sketchProfiles = CadDrawingEngine.detectClosedProfiles(this.sketchEntities);
+  }
+
+  public trimSketchAt(entityId: string, clickPos: THREE.Vector2): void {
+    this.sketchEntities = CadDrawingEngine.trimEntity(entityId, clickPos, this.sketchEntities);
+    this.recomputeSketchProfiles();
+    this.notify();
+  }
+
+  public extendSketchAt(entityId: string, clickPos: THREE.Vector2): void {
+    this.sketchEntities = CadDrawingEngine.extendEntity(entityId, clickPos, this.sketchEntities);
+    this.recomputeSketchProfiles();
+    this.notify();
+  }
+
+  public filletSketch(lineAId: string, lineBId: string, radius: number): void {
+    this.sketchEntities = CadDrawingEngine.filletCorners(lineAId, lineBId, radius, this.sketchEntities);
+    this.recomputeSketchProfiles();
+    this.notify();
+  }
+
+  public offsetSketch(distance: number): void {
+    this.sketchEntities = CadDrawingEngine.offsetEntities(this.sketchEntities, distance);
+    this.recomputeSketchProfiles();
+    this.notify();
+  }
+
+  public extrudeSketchTo3D(height: number = 1.0): SceneObject | null {
+    this.recomputeSketchProfiles();
+    if (this.sketchProfiles.length === 0) {
+      alert('Aucun profil fermé détecté. Dessinez une boucle fermée (ex: rectangle, cercle, ou polyligne fermée) pour extruder.');
+      return null;
+    }
+
+    const primaryProfile = this.sketchProfiles[0];
+    const geom = CadDrawingEngine.create3DExtrusionFromProfile(primaryProfile, height);
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x4a90e2,
+      roughness: 0.3,
+      metalness: 0.1,
+    });
+    const mesh = new THREE.Mesh(geom, mat);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.position.set(0, 0, 0);
+
+    const newObj = this.addObject(`Extrusion_${Date.now().toString().slice(-4)}`, mesh);
+    return newObj;
+  }
+
+  public latheSketchTo3D(segments: number = 32): SceneObject | null {
+    this.recomputeSketchProfiles();
+    if (this.sketchProfiles.length === 0) {
+      // If no closed profile, we can also lathe open lines
+      const pts: THREE.Vector3[] = [];
+      this.sketchEntities.forEach(ent => {
+        if (ent.type === 'LINE') {
+          pts.push(new THREE.Vector3(ent.start.x, ent.start.y, 0));
+          pts.push(new THREE.Vector3(ent.end.x, ent.end.y, 0));
+        } else if (ent.type === 'SPLINE') {
+          ent.points.forEach(p => pts.push(new THREE.Vector3(p.x, p.y, 0)));
+        }
+      });
+
+      if (pts.length < 2) {
+        alert('Veuillez dessiner au moins une ligne ou une courbe pour créer une révolution 360°.');
+        return null;
+      }
+
+      this.curveControlPoints = pts;
+      const geom = CadDrawingEngine.create3DLatheFromProfile({
+        id: 'lathe_open',
+        points: pts.map(p => new THREE.Vector2(p.x, p.y)),
+        entityIds: [],
+        area: 0,
+        isClockwise: false,
+      }, segments);
+      const mat = new THREE.MeshStandardMaterial({ color: 0x4a90e2, roughness: 0.3 });
+      const mesh = new THREE.Mesh(geom, mat);
+      const newObj = this.addObject(`Révolution_Lathe_${Date.now().toString().slice(-4)}`, mesh);
+      return newObj;
+    }
+
+    const primaryProfile = this.sketchProfiles[0];
+    const geom = CadDrawingEngine.create3DLatheFromProfile(primaryProfile, segments);
+    const mat = new THREE.MeshStandardMaterial({ color: 0x4a90e2, roughness: 0.3 });
+    const mesh = new THREE.Mesh(geom, mat);
+    const newObj = this.addObject(`Révolution_${Date.now().toString().slice(-4)}`, mesh);
+    return newObj;
   }
 
   public setSelectionLevel(level: SelectionLevel): void {

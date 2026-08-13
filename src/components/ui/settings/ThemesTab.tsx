@@ -9,6 +9,7 @@ import { Moon, Sun, Sparkles, Palette, Monitor, Check } from 'lucide-react';
 import { ThemeSettings, ThemeStyle } from '../../../types/settings';
 import { SettingsSwitch } from './SettingsSwitch';
 import { editorStore } from '../../../store/EditorStore';
+import { useTranslation } from '../../../context/LanguageContext';
 
 interface ThemesTabProps {
   settings: ThemeSettings;
@@ -16,6 +17,8 @@ interface ThemesTabProps {
 }
 
 export const ThemesTab: React.FC<ThemesTabProps> = ({ settings, onChange }) => {
+  const { t } = useTranslation();
+
   const themes: Array<{
     id: ThemeStyle;
     title: string;
@@ -27,8 +30,8 @@ export const ThemesTab: React.FC<ThemesTabProps> = ({ settings, onChange }) => {
   }> = [
     {
       id: 'dark',
-      title: 'Sombre Studio (Dark)',
-      description: 'Environnement de travail sombre classique haute lisibilité.',
+      title: t.themes.darkTitle,
+      description: t.themes.darkDesc,
       icon: <Moon className="w-5 h-5 text-indigo-400" />,
       previewBg: 'bg-[#0F1113]',
       previewGrid: 'border-[#2D3139]',
@@ -36,8 +39,8 @@ export const ThemesTab: React.FC<ThemesTabProps> = ({ settings, onChange }) => {
     },
     {
       id: 'night',
-      title: 'Nuit Profonde (Night)',
-      description: 'Teinte bleu nuit minuit pour réduire la fatigue oculaire.',
+      title: t.themes.nightTitle,
+      description: t.themes.nightDesc,
       icon: <Sparkles className="w-5 h-5 text-sky-400" />,
       previewBg: 'bg-[#07090E]',
       previewGrid: 'border-[#1E2638]',
@@ -45,8 +48,8 @@ export const ThemesTab: React.FC<ThemesTabProps> = ({ settings, onChange }) => {
     },
     {
       id: 'light',
-      title: 'Mode Jour (Light)',
-      description: 'Thème clair haute luminosité pour environnements éclairés.',
+      title: t.themes.lightTitle,
+      description: t.themes.lightDesc,
       icon: <Sun className="w-5 h-5 text-amber-400" />,
       previewBg: 'bg-[#F4F5F7]',
       previewGrid: 'border-[#D1D5DB]',
@@ -61,11 +64,11 @@ export const ThemesTab: React.FC<ThemesTabProps> = ({ settings, onChange }) => {
   };
 
   const accentColors = [
-    { id: '#3b82f6', name: 'Bleu CAO (Défaut)', bg: 'bg-blue-500' },
-    { id: '#10b981', name: 'Émeraude Studio', bg: 'bg-emerald-500' },
-    { id: '#8b5cf6', name: 'Violet Cyber', bg: 'bg-purple-500' },
-    { id: '#f59e0b', name: 'Ambre Chaud', bg: 'bg-amber-500' },
-    { id: '#ec4899', name: 'Rose Synthwave', bg: 'bg-pink-500' },
+    { id: '#3b82f6', name: t.themes.blueCAD, bg: 'bg-blue-500' },
+    { id: '#10b981', name: t.themes.emeraldStudio, bg: 'bg-emerald-500' },
+    { id: '#8b5cf6', name: t.themes.purpleCyber, bg: 'bg-purple-500' },
+    { id: '#f59e0b', name: t.themes.amberWarm, bg: 'bg-amber-500' },
+    { id: '#ec4899', name: t.themes.pinkSynthwave, bg: 'bg-pink-500' },
   ];
 
   return (
@@ -73,7 +76,7 @@ export const ThemesTab: React.FC<ThemesTabProps> = ({ settings, onChange }) => {
       {/* Themes Visual Cards */}
       <div className="space-y-3">
         <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-300">
-          Palette & Ambiance Globale
+          {t.themes.title}
         </h4>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
@@ -126,7 +129,7 @@ export const ThemesTab: React.FC<ThemesTabProps> = ({ settings, onChange }) => {
                   </div>
                   {isSelected && (
                     <div className="w-5 h-5 rounded-full bg-blue-600 flex items-center justify-center text-white shadow-sm">
-                      <Check className="w-3 h-3 stroke-[3]" />
+                      <Check className="w-3.5 h-3.5 stroke-[3]" />
                     </div>
                   )}
                 </div>
@@ -143,7 +146,7 @@ export const ThemesTab: React.FC<ThemesTabProps> = ({ settings, onChange }) => {
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2.5">
             <Palette className="w-4 h-4 text-blue-400" />
-            <span className="text-sm font-medium text-slate-200">Couleur d'accentuation des Gizmos & Sélection</span>
+            <span className="text-sm font-medium text-slate-200">{t.themes.accentTitle}</span>
           </div>
         </div>
 
@@ -174,12 +177,13 @@ export const ThemesTab: React.FC<ThemesTabProps> = ({ settings, onChange }) => {
         id="theme-high-contrast"
         checked={settings.highContrast}
         onChange={checked => onChange({ highContrast: checked })}
-        title="Mode Contraste Élevé pour les arêtes du maillage"
-        description="Amplifie l'épaisseur et la luminosité des bordures filaires polygonales pour une visualisation optimale sur écrans à faible luminance."
-        badge="Accessibilité"
+        title={t.themes.highContrastTitle}
+        description={t.themes.highContrastDesc}
+        badge={t.themes.accessibilityBadge}
         badgeColor="purple"
         icon={<Monitor className="w-4 h-4" />}
       />
     </div>
   );
 };
+

@@ -36,8 +36,18 @@ import {
   Code,
   ShieldAlert,
   MoveUpRight,
+  PenLine,
+  Square,
+  CircleDot,
+  Trash2,
+  Lock,
+  Unlock,
+  Ruler,
+  Crosshair,
+  Magnet,
 } from 'lucide-react';
 import * as THREE from 'three';
+import { DrawToolType } from '../../types/drawing';
 import { editorStore } from '../../store/EditorStore';
 import { SelectionLevel, SculptMode, EditorMode } from '../../types/editor';
 import {
@@ -638,6 +648,186 @@ export const ToolShelf: React.FC = () => {
                   {activeSubD.levels}
                 </span>
               )}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 4. CAD 2D DRAWING & SKETCHING MODE TOOLBAR */}
+      {mode === 'curve' && (
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Lock / Unlock 2D Camera View */}
+          <button
+            onClick={() => editorStore.setDrawingLocked2D(!editorStore.isDrawingLocked2D)}
+            className={`flex items-center space-x-1 px-2 py-1 rounded text-xs font-semibold border transition-all ${
+              editorStore.isDrawingLocked2D
+                ? 'bg-blue-600 border-blue-500 text-white shadow-md shadow-blue-500/20'
+                : 'bg-[#0F1113] border-[#2D3139] text-slate-400 hover:text-white'
+            }`}
+            title={editorStore.isDrawingLocked2D ? "Vue 2D Orthogonale verrouillée (Axe Z face)" : "Déverrouiller pour orbiter en 3D"}
+          >
+            {editorStore.isDrawingLocked2D ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+            <span className="text-[10px] hidden sm:inline">{editorStore.isDrawingLocked2D ? 'Vue 2D Fixée' : 'Vue Libre'}</span>
+          </button>
+
+          <div className="h-4 w-px bg-[#2D3139]" />
+
+          {/* Primary CAD Drawing Tools */}
+          <div className="flex items-center bg-[#0F1113] p-1 rounded-lg border border-[#2D3139] space-x-0.5">
+            {[
+              { id: 'SELECT' as DrawToolType, label: 'Sélection', icon: <Crosshair className="w-3.5 h-3.5" /> },
+              { id: 'LINE' as DrawToolType, label: 'Ligne (L)', icon: <PenLine className="w-3.5 h-3.5" /> },
+              { id: 'RECTANGLE' as DrawToolType, label: 'Rectangle (R)', icon: <Square className="w-3.5 h-3.5" /> },
+              { id: 'CIRCLE' as DrawToolType, label: 'Cercle (C)', icon: <Circle className="w-3.5 h-3.5" /> },
+              { id: 'ARC' as DrawToolType, label: 'Arc 3 Points', icon: <CircleDot className="w-3.5 h-3.5" /> },
+              { id: 'SPLINE' as DrawToolType, label: 'Spline', icon: <PenTool className="w-3.5 h-3.5" /> },
+              { id: 'TRIM' as DrawToolType, label: 'Rogner', icon: <Scissors className="w-3.5 h-3.5 text-amber-400" /> },
+              { id: 'EXTEND' as DrawToolType, label: 'Prolonger', icon: <MoveUpRight className="w-3.5 h-3.5 text-emerald-400" /> },
+              { id: 'FILLET' as DrawToolType, label: 'Congé', icon: <CornerUpRight className="w-3.5 h-3.5 text-sky-400" /> },
+              { id: 'OFFSET' as DrawToolType, label: 'Décalage', icon: <Copy className="w-3.5 h-3.5 text-purple-400" /> },
+            ].map(t => {
+              const active = editorStore.activeDrawTool === t.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => {
+                    editorStore.setActiveDrawTool(t.id);
+                  }}
+                  className={`p-1.5 rounded transition-all ${
+                    active
+                      ? 'bg-[#4A90E2] text-white shadow-sm'
+                      : 'text-[#8E9299] hover:text-white hover:bg-[#2D3139]'
+                  }`}
+                  title={t.label}
+                >
+                  {t.icon}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="h-4 w-px bg-[#2D3139]" />
+
+          {/* Snapping, Grids & Dimensions */}
+          <div className="flex items-center bg-[#0F1113] p-1 rounded-lg border border-[#2D3139] space-x-1">
+            <button
+              onClick={() => editorStore.updateSketchSettings({ objectSnapEnabled: !editorStore.sketchSettings.objectSnapEnabled })}
+              className={`p-1.5 rounded transition-all flex items-center space-x-1 text-xs ${
+                editorStore.sketchSettings.objectSnapEnabled
+                  ? 'bg-emerald-600/30 text-emerald-400 border border-emerald-500/40 font-bold'
+                  : 'text-[#8E9299] hover:text-white'
+              }`}
+              title="Magnétisme Objet (Extrémités, Milieux, Centres, Intersections)"
+            >
+              <Magnet className="w-3.5 h-3.5" />
+              <span className="text-[9px] font-mono hidden sm:inline">SNAP</span>
+            </button>
+            <button
+              onClick={() => editorStore.updateSketchSettings({ gridSnapEnabled: !editorStore.sketchSettings.gridSnapEnabled })}
+              className={`p-1.5 rounded transition-all flex items-center space-x-1 text-xs ${
+                editorStore.sketchSettings.gridSnapEnabled
+                  ? 'bg-blue-600/30 text-blue-400 border border-blue-500/40 font-bold'
+                  : 'text-[#8E9299] hover:text-white'
+              }`}
+              title={`Accroche Grille (${editorStore.sketchSettings.gridStep})`}
+            >
+              <Grid className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => editorStore.updateSketchSettings({ orthoLockEnabled: !editorStore.sketchSettings.orthoLockEnabled })}
+              className={`p-1.5 rounded transition-all flex items-center space-x-1 text-xs ${
+                editorStore.sketchSettings.orthoLockEnabled
+                  ? 'bg-amber-600/30 text-amber-400 border border-amber-500/40 font-bold'
+                  : 'text-[#8E9299] hover:text-white'
+              }`}
+              title="Verrouillage Orthogonal (0°, 90°, 180°, 270°)"
+            >
+              <Crosshair className="w-3.5 h-3.5" />
+              <span className="text-[9px] font-mono hidden sm:inline">ORTHO</span>
+            </button>
+            <button
+              onClick={() => editorStore.updateSketchSettings({ showDimensions: !editorStore.sketchSettings.showDimensions })}
+              className={`p-1.5 rounded transition-all flex items-center space-x-1 text-xs ${
+                editorStore.sketchSettings.showDimensions
+                  ? 'bg-sky-600/30 text-sky-400 border border-sky-500/40 font-bold'
+                  : 'text-[#8E9299] hover:text-white'
+              }`}
+              title="Afficher/Masquer les cotations exactes"
+            >
+              <Ruler className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* Fillet / Offset quick settings inline */}
+          {editorStore.activeDrawTool === 'FILLET' && (
+            <div className="flex items-center bg-[#0F1113] px-2 py-0.5 rounded border border-[#2D3139] space-x-1 text-[11px] font-mono">
+              <span className="text-slate-400">R:</span>
+              <input
+                type="number"
+                min="0.1"
+                max="5"
+                step="0.1"
+                value={editorStore.sketchSettings.filletRadius}
+                onChange={e => editorStore.updateSketchSettings({ filletRadius: parseFloat(e.target.value) || 0.5 })}
+                className="w-10 bg-[#1C1E22] border border-[#2D3139] rounded text-center text-sky-300 text-[10px]"
+              />
+            </div>
+          )}
+
+          {editorStore.activeDrawTool === 'OFFSET' && (
+            <div className="flex items-center bg-[#0F1113] px-2 py-0.5 rounded border border-[#2D3139] space-x-1 text-[11px] font-mono">
+              <span className="text-slate-400">D:</span>
+              <input
+                type="number"
+                min="-10"
+                max="10"
+                step="0.1"
+                value={editorStore.sketchSettings.offsetDistance}
+                onChange={e => editorStore.updateSketchSettings({ offsetDistance: parseFloat(e.target.value) || 0.5 })}
+                className="w-10 bg-[#1C1E22] border border-[#2D3139] rounded text-center text-purple-300 text-[10px]"
+              />
+            </div>
+          )}
+
+          <div className="h-4 w-px bg-[#2D3139]" />
+
+          {/* 3D Extrude & Lathe Actions */}
+          <div className="flex items-center space-x-1">
+            <button
+              onClick={() => editorStore.extrudeSketchTo3D(1.0)}
+              disabled={editorStore.sketchEntities.length === 0}
+              className={`flex items-center space-x-1 px-2.5 py-1 rounded text-xs font-bold transition-all ${
+                editorStore.sketchProfiles.length > 0
+                  ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-sm cursor-pointer'
+                  : 'bg-[#0F1113] text-slate-400 hover:text-white border border-[#2D3139] cursor-pointer'
+              }`}
+              title="Extruder le profil 2D en solide 3D"
+            >
+              <Box className="w-3.5 h-3.5" />
+              <span className="text-[11px]">Extruder 3D</span>
+            </button>
+
+            <button
+              onClick={() => editorStore.latheSketchTo3D(32)}
+              disabled={editorStore.sketchEntities.length === 0}
+              className="flex items-center space-x-1 px-2 py-1 bg-[#0F1113] hover:bg-[#2D3139] border border-[#2D3139] text-slate-300 hover:text-white rounded text-xs transition-colors cursor-pointer"
+              title="Révolution 360° (Lathe)"
+            >
+              <RotateCw className="w-3.5 h-3.5 text-amber-400" />
+              <span className="text-[11px] hidden sm:inline">Lathe</span>
+            </button>
+
+            <button
+              onClick={() => {
+                if (editorStore.sketchEntities.length > 0 && confirm('Effacer tous les éléments 2D de l\'esquisse ?')) {
+                  editorStore.clearSketch();
+                }
+              }}
+              disabled={editorStore.sketchEntities.length === 0}
+              className="p-1.5 bg-[#0F1113] hover:bg-rose-950/40 text-slate-400 hover:text-rose-400 border border-[#2D3139] rounded transition-colors"
+              title="Effacer l'esquisse"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>

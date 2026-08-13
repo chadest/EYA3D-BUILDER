@@ -32,6 +32,7 @@ import { SettingsSelect } from './SettingsSelect';
 import { threeOptimizationEngine } from '../../../core/optimization/threeOptimizationEngine';
 import { antiFreezeDetector } from '../../../core/optimization/antiFreezeDetector';
 import { editorStore } from '../../../store/EditorStore';
+import { useTranslation } from '../../../context/LanguageContext';
 
 interface OptimizationTabProps {
   settings: OptimizationSettings;
@@ -39,12 +40,13 @@ interface OptimizationTabProps {
 }
 
 export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onChange }) => {
+  const { t } = useTranslation();
   const [purgeStatus, setPurgeStatus] = useState<string | null>(null);
   const [isPurging, setIsPurging] = useState<boolean>(false);
 
   const handleManualPurge = async () => {
     setIsPurging(true);
-    setPurgeStatus('Nettoyage VRAM en cours...');
+    setPurgeStatus(t.common.loading);
 
     try {
       // 1. Déclenche le nettoyage VRAM via le moteur d'optimisation
@@ -60,11 +62,11 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
       }
 
       setPurgeStatus(
-        `Purge réussie : ${stats.geometries} géométries, ${stats.materials} matériaux & ${stats.textures} textures libérés.`
+        `${t.optimization.purgedSuccess} (${stats.geometries} geom, ${stats.materials} mat, ${stats.textures} tex)`
       );
     } catch (err) {
       console.error('Erreur lors de la purge manuelle:', err);
-      setPurgeStatus('Purge complétée avec succès.');
+      setPurgeStatus(t.optimization.purgedSuccess);
     } finally {
       setIsPurging(false);
       setTimeout(() => setPurgeStatus(null), 4500);
@@ -84,7 +86,7 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <h4 className="text-sm font-semibold text-slate-100">Accélérateur Graphique Détecté</h4>
+                <h4 className="text-sm font-semibold text-slate-100">{t.optimization.gpuStatus}</h4>
                 <span className="text-[10px] px-1.5 py-0.5 rounded font-mono bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
                   {gpuDiagnostics.webglVersion}
                 </span>
@@ -101,7 +103,7 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
             className="flex items-center justify-center space-x-2 bg-[#1E232E] hover:bg-[#282F3E] text-slate-200 border border-[#374151] hover:border-blue-500/50 px-3.5 py-2 rounded-lg text-xs font-medium transition-all shadow-sm active:scale-95 cursor-pointer disabled:opacity-50"
           >
             <RefreshCw className={`w-3.5 h-3.5 text-blue-400 ${isPurging ? 'animate-spin' : ''}`} />
-            <span>Purger VRAM & Cache</span>
+            <span>{t.optimization.purgeBtn}</span>
           </button>
         </div>
 
@@ -118,7 +120,7 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
         <div className="flex items-center space-x-2 pb-1 border-b border-[#252A34]">
           <Database className="w-4 h-4 text-blue-400" />
           <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-300">
-            Section A : Gestion des Caches et Mémoire VRAM
+            {t.optimization.sectionA}
           </h3>
         </div>
 
@@ -128,9 +130,9 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
             id="opt-clear-startup"
             checked={settings.clearCacheOnStartup}
             onChange={checked => onChange({ clearCacheOnStartup: checked })}
-            title="Vider le cache au démarrage"
-            description="Exécute automatiquement un nettoyage complet des caches mémoire et buffers orphelins à l'initialisation du composant 3D."
-            badge="Recommandé"
+            title={t.optimization.clearStartupTitle}
+            description={t.optimization.clearStartupDesc}
+            badge={t.optimization.recommended}
             badgeColor="emerald"
             icon={<RefreshCw className="w-4 h-4" />}
           />
@@ -143,9 +145,9 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
               onChange({ threeCacheEnabled: checked });
               threeOptimizationEngine.applySettings({ ...settings, threeCacheEnabled: checked });
             }}
-            title="Cache interne Three.js (THREE.Cache.enabled)"
-            description="Mémorise en cache les géométries, fichiers et textures répétitifs pour éviter des re-téléchargements redondants au cours d'une même session."
-            badge={settings.threeCacheEnabled ? 'Actif' : 'Désactivé'}
+            title={t.optimization.threeCacheTitle}
+            description={t.optimization.threeCacheDesc}
+            badge={settings.threeCacheEnabled ? t.optimization.active : t.optimization.disabled}
             badgeColor={settings.threeCacheEnabled ? 'blue' : 'slate'}
             icon={<HardDrive className="w-4 h-4" />}
           />
@@ -155,9 +157,9 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
             id="opt-vram-cleanup"
             checked={settings.aggressiveVRAMCleanup}
             onChange={checked => onChange({ aggressiveVRAMCleanup: checked })}
-            title="Nettoyage agressif de la mémoire GPU (VRAM)"
-            description="Déclenche automatiquement scene.traverse pour appeler .dispose() sur toutes les géométries, matériaux et maps lors de la suppression d'objets."
-            badge="Anti-Leak VRAM"
+            title={t.optimization.vramCleanupTitle}
+            description={t.optimization.vramCleanupDesc}
+            badge={t.optimization.antiLeak}
             badgeColor="purple"
             icon={<Trash2 className="w-4 h-4" />}
           />
@@ -172,8 +174,8 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
                 threeOptimizationEngine.clearBrowserCacheStorage();
               }
             }}
-            title="Cache réseau du navigateur (CacheStorage)"
-            description="Efface et désactive l'API CacheStorage locale via le code de l'application pour garantir la fraîcheur absolue de l'interface et des assets."
+            title={t.optimization.browserCacheTitle}
+            description={t.optimization.browserCacheDesc}
             badge="CacheStorage"
             badgeColor="slate"
             icon={<Database className="w-4 h-4" />}
@@ -184,9 +186,9 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
             id="opt-cache-busting"
             checked={settings.cacheBusting3D}
             onChange={checked => onChange({ cacheBusting3D: checked })}
-            title="Cache Busting des fichiers 3D (?v=timestamp)"
-            description="Injecte dynamiquement un timestamp de version à la fin des URLs des fichiers .gltf, .bin et textures pour forcer le serveur à fournir la version la plus récente."
-            badge="Auto-Version"
+            title={t.optimization.cacheBustingTitle}
+            description={t.optimization.cacheBustingDesc}
+            badge={t.optimization.autoVersion}
             badgeColor="amber"
             icon={<Zap className="w-4 h-4" />}
           />
@@ -198,7 +200,7 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
         <div className="flex items-center space-x-2 pb-1 border-b border-[#252A34]">
           <Sliders className="w-4 h-4 text-amber-400" />
           <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-300">
-            Section B : Optimisations Avancées du Rendu & du GPU
+            {t.optimization.sectionB}
           </h3>
         </div>
 
@@ -216,9 +218,9 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
                 editorStore.activeThreeRenderer
               );
             }}
-            title="Ombres Éco / Fixes (shadowMap.autoUpdate = false)"
-            description="Passe renderer.shadowMap.autoUpdate à false pour figer les ombres et économiser le GPU en évitant de recalculer les ShadowMaps à chaque frame."
-            badge={settings.ecoStaticShadows ? 'Éco Fixe' : 'Dynamique'}
+            title={t.optimization.ecoShadowsTitle}
+            description={t.optimization.ecoShadowsDesc}
+            badge={settings.ecoStaticShadows ? t.optimization.ecoStatic : t.optimization.dynamic}
             badgeColor={settings.ecoStaticShadows ? 'amber' : 'slate'}
             icon={<Sun className="w-4 h-4" />}
           />
@@ -243,7 +245,7 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
               <div className="space-y-1">
                 <div className="flex items-center space-x-2">
                   <span className="text-sm font-medium text-slate-200 select-none">
-                    Limiteur de FPS (FPS Throttling)
+                    {t.optimization.fpsLimiterTitle}
                   </span>
                   <span
                     className={`text-[10px] px-1.5 py-0.5 rounded font-mono border ${
@@ -252,11 +254,11 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
                         : 'bg-slate-500/10 text-slate-400 border-slate-500/30'
                     }`}
                   >
-                    {settings.fpsLimiterEnabled ? `${settings.fpsLimit.toUpperCase()} FPS` : 'Désactivé'}
+                    {settings.fpsLimiterEnabled ? `${settings.fpsLimit.toUpperCase()} FPS` : t.optimization.disabled}
                   </span>
                 </div>
                 <p className="text-xs text-slate-400 leading-relaxed max-w-xl">
-                  Permet de brider le rafraîchissement de la boucle requestAnimationFrame pour stabiliser le framerate et éviter la surchauffe de la carte graphique.
+                  {t.optimization.fpsLimiterDesc}
                 </p>
               </div>
             </div>
@@ -265,7 +267,7 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
               {settings.fpsLimiterEnabled && (
                 <div className="flex items-center space-x-1.5 bg-[#181B22] border border-[#2E3442] rounded px-2 py-1">
                   <label htmlFor="fps-limit-select" className="text-xs text-slate-400 font-mono">
-                    Cible :
+                    {t.optimization.fpsTarget} :
                   </label>
                   <select
                     id="fps-limit-select"
@@ -282,9 +284,9 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
                     }}
                     className="bg-[#0F1115] border border-[#3A4150] rounded text-xs text-amber-400 font-mono py-0.5 px-1.5 focus:outline-none focus:border-amber-500 cursor-pointer"
                   >
-                    <option value="30">30 FPS (Éco Batterie)</option>
-                    <option value="60">60 FPS (Standard Fluide)</option>
-                    <option value="max">Max (Illimité)</option>
+                    <option value="30">{t.optimization.fpsEco}</option>
+                    <option value="60">{t.optimization.fpsFluid}</option>
+                    <option value="max">{t.optimization.fpsUnlimited}</option>
                   </select>
                 </div>
               )}
@@ -307,7 +309,7 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
                   settings.fpsLimiterEnabled ? 'bg-amber-600' : 'bg-[#2A2E39]'
                 }`}
               >
-                <span className="sr-only">Limiteur de FPS</span>
+                <span className="sr-only">{t.optimization.fpsLimiterTitle}</span>
                 <span
                   aria-hidden="true"
                   className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
@@ -331,9 +333,9 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
                 editorStore.activeThreeRenderer
               );
             }}
-            title="Anticrénelage matériel (Antialias & Sub-sampling)"
-            description="Permet d'activer ou désactiver l'option 'antialias' et le sous-échantillonnage de pixels du WebGLRenderer pour un gain de performance brut immédiat (au détriment du lissage visuel)."
-            badge={settings.hardwareAntialias ? 'Lissage Actif' : 'Gain Brut (+FPS)'}
+            title={t.optimization.antialiasTitle}
+            description={t.optimization.antialiasDesc}
+            badge={settings.hardwareAntialias ? t.optimization.smoothingActive : t.optimization.rawGain}
             badgeColor={settings.hardwareAntialias ? 'blue' : 'emerald'}
             icon={<Sparkles className="w-4 h-4" />}
           />
@@ -351,9 +353,9 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
                 editorStore.activeThreeRenderer
               );
             }}
-            title="Masquage hors-champ agressif (Frustum Culling)"
-            description="Force mesh.frustumCulled = true sur tous les maillages pour que le moteur n'envoie pas au GPU les objets non visibles à l'écran, réduisant drastiquement le nombre de Draw Calls."
-            badge={settings.aggressiveFrustumCulling ? 'Actif (Frustum)' : 'Désactivé'}
+            title={t.optimization.frustumTitle}
+            description={t.optimization.frustumDesc}
+            badge={settings.aggressiveFrustumCulling ? t.optimization.frustumActive : t.optimization.disabled}
             badgeColor={settings.aggressiveFrustumCulling ? 'emerald' : 'slate'}
             icon={<EyeOff className="w-4 h-4" />}
           />
@@ -365,7 +367,7 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
         <div className="flex items-center space-x-2 pb-1 border-b border-[#252A34]">
           <Cpu className="w-4 h-4 text-emerald-400" />
           <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-300">
-            Section C : Configuration du Moteur de Rendu (Engine Settings)
+            {t.optimization.sectionC}
           </h3>
         </div>
 
@@ -375,21 +377,21 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
             id="opt-primary-renderer"
             value={settings.primaryRenderer}
             onChange={val => onChange({ primaryRenderer: val as RendererEngineType })}
-            title="Moteur de rendu principal"
-            description="Sélectionnez le pipeline graphique. WebGLRenderer offre la compatibilité maximale tandis que WebGPURenderer tire parti des dernières API GPU modernes."
+            title={t.optimization.primaryRendererTitle}
+            description={t.optimization.primaryRendererDesc}
             icon={<Layers className="w-4 h-4" />}
             options={[
               {
                 value: 'webgl',
                 label: 'WebGLRenderer',
-                badge: 'Stable & Standard',
-                description: 'Pipeline WebGL 2.0 certifié ultra-stable',
+                badge: t.optimization.webglStable,
+                description: t.optimization.webglDesc,
               },
               {
                 value: 'webgpu',
                 label: 'WebGPURenderer',
-                badge: 'Expérimental',
-                description: 'Nouveau standard haute performance Next-Gen',
+                badge: t.optimization.webgpuExp,
+                description: t.optimization.webgpuDesc,
               },
             ]}
           />
@@ -399,9 +401,9 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
             id="opt-high-perf-gpu"
             checked={settings.highPerformanceGPU}
             onChange={checked => onChange({ highPerformanceGPU: checked })}
-            title="Puissance maximale du GPU (powerPreference: 'high-performance')"
-            description="Injecte le flag powerPreference dans le constructeur Three.js pour forcer l'activation des puces graphiques dédiées (Nvidia / AMD / Apple Silicon Max) sur PC portables."
-            badge="Dedicated GPU"
+            title={t.optimization.highPerfTitle}
+            description={t.optimization.highPerfDesc}
+            badge={t.optimization.dedicatedGPU}
             badgeColor="emerald"
             icon={<Flame className="w-4 h-4" />}
           />
@@ -411,9 +413,9 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
             id="opt-draco-workers"
             checked={settings.dracoWorkerMultithreading}
             onChange={checked => onChange({ dracoWorkerMultithreading: checked })}
-            title="Multithreading via Workers CPU (DRACOLoader)"
-            description="Délègue la décompression des maillages 3D complexes à des Web Workers d'arrière-plan afin d'éviter tout blocage (freeze) de l'interface utilisateur."
-            badge="Web Workers"
+            title={t.optimization.dracoWorkersTitle}
+            description={t.optimization.dracoWorkersDesc}
+            badge={t.optimization.webWorkers}
             badgeColor="blue"
             icon={<Cpu className="w-4 h-4" />}
           />
@@ -425,7 +427,7 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
         <div className="flex items-center space-x-2 pb-1 border-b border-[#252A34]">
           <Clock className="w-4 h-4 text-purple-400" />
           <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-300">
-            Section D : Automatisation et Système
+            {t.optimization.sectionD}
           </h3>
         </div>
 
@@ -453,7 +455,7 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
                 <div className="space-y-1">
                   <div className="flex items-center space-x-2">
                     <span className="text-sm font-medium text-slate-200 select-none">
-                      Détecteur Anti-Freeze Actif
+                      {t.optimization.antiFreezeTitle}
                     </span>
                     <span
                       className={`text-[10px] px-1.5 py-0.5 rounded font-mono border ${
@@ -462,11 +464,11 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
                           : 'bg-slate-500/10 text-slate-400 border-slate-500/30'
                       }`}
                     >
-                      {settings.antiFreezeDetectorEnabled ? 'Surveillance Worker (>1500ms)' : 'Désactivé'}
+                      {settings.antiFreezeDetectorEnabled ? t.optimization.workerMonitoring : t.optimization.disabled}
                     </span>
                   </div>
                   <p className="text-xs text-slate-400 leading-relaxed max-w-xl">
-                    Active le composant AntiFreezeDetector via Web Workers d'arrière-plan. Si l'application subit un gel de plus de 1500ms, le système intercepte le freeze, lance une Garbage Collection d'urgence et notifie l'utilisateur via une alerte visuelle tout en dégradant temporairement les options graphiques (ex: couper les ombres dynamiques) pour sauver la session de modélisation.
+                    {t.optimization.antiFreezeDesc}
                   </p>
                 </div>
               </div>
@@ -491,7 +493,7 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
                     settings.antiFreezeDetectorEnabled ? 'bg-rose-600' : 'bg-[#2A2E39]'
                   }`}
                 >
-                  <span className="sr-only">Détecteur Anti-Freeze Actif</span>
+                  <span className="sr-only">{t.optimization.antiFreezeTitle}</span>
                   <span
                     aria-hidden="true"
                     className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
@@ -507,10 +509,10 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
               <div className="flex items-center justify-between pt-2 border-t border-[#252A34] text-xs">
                 <div className="flex items-center space-x-2 text-slate-400 font-mono text-[11px]">
                   <Activity className="w-3.5 h-3.5 text-rose-400 animate-pulse" />
-                  <span>Heartbeat actif (Pulsation 250ms)</span>
+                  <span>{t.optimization.heartbeatActive}</span>
                   <span className="text-slate-600">|</span>
                   <span className="text-slate-300">
-                    Freezes neutralisés : <strong className="text-rose-400">{antiFreezeDetector.totalFreezesIntercepted}</strong>
+                    {t.optimization.freezesIntercepted} : <strong className="text-rose-400">{antiFreezeDetector.totalFreezesIntercepted}</strong>
                   </span>
                 </div>
               </div>
@@ -526,14 +528,14 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
               <div className="space-y-1">
                 <div className="flex items-center space-x-2">
                   <span className="text-sm font-medium text-slate-200 select-none">
-                    Auto-optimisation périodique (Garbage Collector)
+                    {t.optimization.autoGCTitle}
                   </span>
                   <span className="text-[10px] px-1.5 py-0.5 rounded font-mono bg-purple-500/10 text-purple-400 border border-purple-500/30">
                     Auto-GC
                   </span>
                 </div>
                 <p className="text-xs text-slate-400 leading-relaxed max-w-xl">
-                  Déclenche un cycle de nettoyage VRAM planifié en arrière-plan pour purger les textures et géométries temporaires inutilisées.
+                  {t.optimization.autoGCDesc}
                 </p>
               </div>
             </div>
@@ -541,7 +543,7 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
             <div className="flex items-center space-x-3 self-end sm:self-center">
               {settings.periodicAutoOptimization && (
                 <div className="flex items-center space-x-1.5 bg-[#181B22] border border-[#2E3442] rounded px-2 py-1">
-                  <span className="text-xs text-slate-400 font-mono">Toutes les</span>
+                  <span className="text-xs text-slate-400 font-mono">{t.optimization.everyMinutes}</span>
                   <input
                     type="number"
                     min={1}
@@ -553,7 +555,7 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
                     }}
                     className="w-12 bg-[#0F1115] border border-[#3A4150] rounded text-center text-xs text-blue-400 font-mono py-0.5 focus:outline-none focus:border-blue-500"
                   />
-                  <span className="text-xs text-slate-400 font-mono">min</span>
+                  <span className="text-xs text-slate-400 font-mono">{t.optimization.minUnit}</span>
                 </div>
               )}
 
@@ -566,7 +568,7 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
                   settings.periodicAutoOptimization ? 'bg-purple-600' : 'bg-[#2A2E39]'
                 }`}
               >
-                <span className="sr-only">Auto-optimisation</span>
+                <span className="sr-only">{t.optimization.autoGCTitle}</span>
                 <span
                   aria-hidden="true"
                   className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
@@ -587,12 +589,9 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
               <Info className="w-4 h-4" />
             </div>
             <div className="space-y-1">
-              <h5 className="font-semibold text-amber-300">Conseil Performance Système & Navigateur</h5>
+              <h5 className="font-semibold text-amber-300">{t.optimization.systemTipTitle}</h5>
               <p className="text-amber-200/80 leading-relaxed text-[11px]">
-                Pour des performances optimales, assurez-vous d'activer l'
-                <strong className="text-amber-100 font-semibold">accélération matérielle</strong> dans les paramètres
-                de votre navigateur et de configurer votre système OS sur{' '}
-                <strong className="text-amber-100 font-semibold">'Performances Élevées'</strong>.
+                {t.optimization.systemTipDesc}
               </p>
             </div>
           </div>
@@ -601,4 +600,5 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
     </div>
   );
 };
+
 

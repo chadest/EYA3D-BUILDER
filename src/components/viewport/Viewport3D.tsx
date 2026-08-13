@@ -38,6 +38,9 @@ import { RealisticRenderPipeline } from '../../core/rendering/renderPipeline';
 import { StudioCyclorama } from './StudioCyclorama';
 import { physicsEngine } from '../../core/physics/PhysicsEngine';
 import { threeOptimizationEngine } from '../../core/optimization/threeOptimizationEngine';
+import { CadDrawingEngine } from '../../core/drawing/cadDrawingEngine';
+import { SketchEntity, LineSketchEntity, RectSketchEntity, CircleSketchEntity, ArcSketchEntity, SplineSketchEntity, SnapPoint } from '../../types/drawing';
+import { SketchOverlayHUD } from '../drawing/SketchOverlayHUD';
 
 // 1. Interactive 3D Coordinate Axis Orientation Gizmo (Matching User Screenshot)
 interface ViewOrientationGizmoProps {
@@ -299,6 +302,41 @@ export const Viewport3D: React.FC = () => {
   const [lassoCurrent, setLassoCurrent] = useState<{ x: number; y: number } | null>(null);
   const isLassoDraggingRef = useRef<boolean>(false);
 
+  // CAD 2D Sketch References & HUD State
+  const sketchGroupRef = useRef<THREE.Group>(new THREE.Group());
+  const activeDrawPointsRef = useRef<THREE.Vector2[]>([]);
+  const filletFirstLineIdRef = useRef<string | null>(null);
+  const [cursorScreenPos, setCursorScreenPos] = useState<{ x: number; y: number } | null>(null);
+  const [cursorWorldPos, setCursorWorldPos] = useState<{ x: number; y: number } | null>(null);
+  const [rubberBandInfo, setRubberBandInfo] = useState<{
+    length: number;
+    angleDeg: number;
+    radius?: number;
+  } | null>(null);
+
+  // Camera 2D Lock / LookAt Sync with EditorStore
+  useEffect(() => {
+    editorStore.onForce2DCameraLookAt = () => {
+      if (!cameraRef.current || !controlsRef.current) return;
+      cameraRef.current.position.set(0, 0, 10);
+      cameraRef.current.up.set(0, 1, 0);
+      controlsRef.current.target.set(0, 0, 0);
+      controlsRef.current.enableRotate = false;
+      controlsRef.current.update();
+    };
+
+    editorStore.onUnlock3DCamera = () => {
+      if (!controlsRef.current) return;
+      controlsRef.current.enableRotate = true;
+      controlsRef.current.update();
+    };
+
+    return () => {
+      editorStore.onForce2DCameraLookAt = null;
+      editorStore.onUnlock3DCamera = null;
+    };
+  }, []);
+
   // Interactive Primitive Drawing References
   const previewMeshRef = useRef<THREE.Mesh | null>(null);
   const drawingDataRef = useRef<{
@@ -491,6 +529,25 @@ export const Viewport3D: React.FC = () => {
       }
       if (e.key === 'Escape') {
         handleCancelDrawing();
+        activeDrawPointsRef.current = [];
+        setRubberBandInfo(null);
+        filletFirstLineIdRef.current = null;
+      }
+      if (e.key === 'Enter' && editorStore.mode === 'curve' && activeDrawPointsRef.current.length >= 2) {
+        if (editorStore.activeDrawTool === 'SPLINE') {
+          editorStore.addSketchEntity({
+            id: `spline_${Date.now()}`,
+            type: 'SPLINE',
+            points: [...activeDrawPointsRef.current],
+          });
+          activeDrawPointsRef.current = [];
+          setRubberBandInfo(null);
+        }
+      }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && editorStore.mode === 'curve' && document.activeElement?.tagName !== 'INPUT') {
+        if (editorStore.sketchSelectedEntityIds.length > 0) {
+          editorStore.deleteSketchEntities(editorStore.sketchSelectedEntityIds);
+        }
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
@@ -1356,6 +1413,7 @@ export const Viewport3D: React.FC = () => {
     scene.add(curveHandlesRef.current);
     scene.add(selectionGizmoRef.current);
     scene.add(editDummyRef.current);
+    scene.add(sketchGroupRef.current);
 
     // Initialize Realistic Render Pipeline
     const renderPipeline = new RealisticRenderPipeline();
@@ -1507,28 +1565,211 @@ export const Viewport3D: React.FC = () => {
         transformControls.detach();
       }
 
-      // Update Spline Curve Visualization
+      // Update 2D CAD Sketching & Spline Curve Visualization
       if (editorStore.mode === 'curve') {
-        const curve = createCatmullRomCurve(editorStore.curveControlPoints);
-        if (curve) {
-          if (curveLineRef.current) scene.remove(curveLineRef.current);
-          const lineMesh = buildCurveLineMesh(curve);
-          scene.add(lineMesh);
-          curveLineRef.current = lineMesh;
+        // Clear previous sketch objects
+        sketchGroupRef.current.clear();
+
+        const lineMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 2 });
+        const selLineMat = new THREE.LineBasicMaterial({ color: 0xf59e0b, linewidth: 3 });
+        const profileFillMat = new THREE.MeshBasicMaterial({
+          color: 0x10b981,
+          transparent: true,
+          opacity: 0.18,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+
+        // 1. Render closed profile fills (visual feedback for 3D extrusion ready)
+        for (const prof of editorStore.sketchProfiles) {
+          if (prof.points.length >= 3) {
+            const shape = new THREE.Shape();
+            shape.moveTo(prof.points[0].x, prof.points[0].y);
+            for (let i = 1; i < prof.points.length; i++) {
+              shape.lineTo(prof.points[i].x, prof.points[i].y);
+            }
+            shape.closePath();
+            const geom = new THREE.ShapeGeometry(shape);
+            const mesh = new THREE.Mesh(geom, profileFillMat);
+            mesh.position.z = -0.01;
+            sketchGroupRef.current.add(mesh);
+          }
         }
 
-        // Render Control Handle spheres
-        curveHandlesRef.current.clear();
-        editorStore.curveControlPoints.forEach(pt => {
-          const sphereGeom = new THREE.SphereGeometry(0.08, 12, 12);
-          const sphereMat = new THREE.MeshBasicMaterial({ color: 0x00e5ff });
-          const handle = new THREE.Mesh(sphereGeom, sphereMat);
-          handle.position.copy(pt);
-          curveHandlesRef.current.add(handle);
-        });
+        // 2. Render all Sketch Entities
+        for (const ent of editorStore.sketchEntities) {
+          const isSelected = editorStore.sketchSelectedEntityIds.includes(ent.id);
+          const isHovered = editorStore.sketchHoveredEntityId === ent.id;
+          const mat = isSelected
+            ? selLineMat
+            : isHovered
+            ? new THREE.LineBasicMaterial({ color: 0xf43f5e, linewidth: 2 })
+            : lineMat;
+
+          if (ent.type === 'LINE') {
+            const geom = new THREE.BufferGeometry().setFromPoints([
+              new THREE.Vector3(ent.start.x, ent.start.y, 0.01),
+              new THREE.Vector3(ent.end.x, ent.end.y, 0.01),
+            ]);
+            const line = new THREE.Line(geom, mat);
+            sketchGroupRef.current.add(line);
+
+            // Endpoint markers
+            [ent.start, ent.end].forEach(p => {
+              const dotGeom = new THREE.CircleGeometry(0.04, 8);
+              const dotMat = new THREE.MeshBasicMaterial({ color: 0x0284c7 });
+              const dot = new THREE.Mesh(dotGeom, dotMat);
+              dot.position.set(p.x, p.y, 0.02);
+              sketchGroupRef.current.add(dot);
+            });
+          } else if (ent.type === 'RECTANGLE') {
+            const p1 = ent.start;
+            const p2 = new THREE.Vector2(ent.end.x, ent.start.y);
+            const p3 = ent.end;
+            const p4 = new THREE.Vector2(ent.start.x, ent.end.y);
+            const geom = new THREE.BufferGeometry().setFromPoints([
+              new THREE.Vector3(p1.x, p1.y, 0.01),
+              new THREE.Vector3(p2.x, p2.y, 0.01),
+              new THREE.Vector3(p3.x, p3.y, 0.01),
+              new THREE.Vector3(p4.x, p4.y, 0.01),
+              new THREE.Vector3(p1.x, p1.y, 0.01),
+            ]);
+            const line = new THREE.Line(geom, mat);
+            sketchGroupRef.current.add(line);
+          } else if (ent.type === 'CIRCLE') {
+            const segs = 48;
+            const pts: THREE.Vector3[] = [];
+            for (let i = 0; i <= segs; i++) {
+              const a = (i / segs) * Math.PI * 2;
+              pts.push(
+                new THREE.Vector3(
+                  ent.center.x + Math.cos(a) * ent.radius,
+                  ent.center.y + Math.sin(a) * ent.radius,
+                  0.01
+                )
+              );
+            }
+            const geom = new THREE.BufferGeometry().setFromPoints(pts);
+            const line = new THREE.Line(geom, mat);
+            sketchGroupRef.current.add(line);
+
+            const centerDot = new THREE.Mesh(
+              new THREE.CircleGeometry(0.03, 8),
+              new THREE.MeshBasicMaterial({ color: 0x0284c7 })
+            );
+            centerDot.position.set(ent.center.x, ent.center.y, 0.02);
+            sketchGroupRef.current.add(centerDot);
+          } else if (ent.type === 'ARC') {
+            const segs = 32;
+            const pts: THREE.Vector3[] = [];
+            let span = ent.endAngle - ent.startAngle;
+            if (span <= 0) span += Math.PI * 2;
+            for (let i = 0; i <= segs; i++) {
+              const a = ent.startAngle + (i / segs) * span;
+              pts.push(
+                new THREE.Vector3(
+                  ent.center.x + Math.cos(a) * ent.radius,
+                  ent.center.y + Math.sin(a) * ent.radius,
+                  0.01
+                )
+              );
+            }
+            const geom = new THREE.BufferGeometry().setFromPoints(pts);
+            const line = new THREE.Line(geom, mat);
+            sketchGroupRef.current.add(line);
+          } else if (ent.type === 'SPLINE') {
+            if (ent.points.length >= 2) {
+              const v3Points = ent.points.map(p => new THREE.Vector3(p.x, p.y, 0.01));
+              const curve = new THREE.CatmullRomCurve3(v3Points);
+              const pts = curve.getPoints(50);
+              const geom = new THREE.BufferGeometry().setFromPoints(pts);
+              const line = new THREE.Line(geom, mat);
+              sketchGroupRef.current.add(line);
+            }
+          }
+        }
+
+        // 3. Active rubber-band / drawing in progress preview
+        const pts = activeDrawPointsRef.current;
+        const tool = editorStore.activeDrawTool;
+
+        if (pts.length > 0 && cursorWorldPos) {
+          const curV = new THREE.Vector2(cursorWorldPos.x, cursorWorldPos.y);
+          if (tool === 'LINE') {
+            const pStart = pts[pts.length - 1];
+            const g = new THREE.BufferGeometry().setFromPoints([
+              new THREE.Vector3(pStart.x, pStart.y, 0.02),
+              new THREE.Vector3(curV.x, curV.y, 0.02),
+            ]);
+            const l = new THREE.Line(
+              g,
+              new THREE.LineBasicMaterial({ color: 0x10b981, linewidth: 2 })
+            );
+            sketchGroupRef.current.add(l);
+          } else if (tool === 'RECTANGLE') {
+            const p1 = pts[0];
+            const p2 = new THREE.Vector2(curV.x, p1.y);
+            const p3 = curV;
+            const p4 = new THREE.Vector2(p1.x, curV.y);
+            const g = new THREE.BufferGeometry().setFromPoints([
+              new THREE.Vector3(p1.x, p1.y, 0.02),
+              new THREE.Vector3(p2.x, p2.y, 0.02),
+              new THREE.Vector3(p3.x, p3.y, 0.02),
+              new THREE.Vector3(p4.x, p4.y, 0.02),
+              new THREE.Vector3(p1.x, p1.y, 0.02),
+            ]);
+            const l = new THREE.Line(
+              g,
+              new THREE.LineBasicMaterial({ color: 0x10b981, linewidth: 2 })
+            );
+            sketchGroupRef.current.add(l);
+          } else if (tool === 'CIRCLE') {
+            const center = pts[0];
+            const radius = center.distanceTo(curV);
+            const segs = 36;
+            const circlePts: THREE.Vector3[] = [];
+            for (let i = 0; i <= segs; i++) {
+              const a = (i / segs) * Math.PI * 2;
+              circlePts.push(
+                new THREE.Vector3(
+                  center.x + Math.cos(a) * radius,
+                  center.y + Math.sin(a) * radius,
+                  0.02
+                )
+              );
+            }
+            const g = new THREE.BufferGeometry().setFromPoints(circlePts);
+            const l = new THREE.Line(
+              g,
+              new THREE.LineBasicMaterial({ color: 0x10b981, linewidth: 2 })
+            );
+            sketchGroupRef.current.add(l);
+          } else if (tool === 'SPLINE') {
+            const allPts = [...pts, curV].map(p => new THREE.Vector3(p.x, p.y, 0.02));
+            if (allPts.length >= 2) {
+              const curve = new THREE.CatmullRomCurve3(allPts);
+              const g = new THREE.BufferGeometry().setFromPoints(curve.getPoints(30));
+              const l = new THREE.Line(
+                g,
+                new THREE.LineBasicMaterial({ color: 0x10b981, linewidth: 2 })
+              );
+              sketchGroupRef.current.add(l);
+            }
+          }
+        }
+
+        // 4. Active Snapping Indicator Glyph in 3D scene
+        if (editorStore.activeSnapPoint) {
+          const snapP = editorStore.activeSnapPoint.position;
+          const snapMarker = new THREE.Mesh(
+            new THREE.RingGeometry(0.04, 0.07, 16),
+            new THREE.MeshBasicMaterial({ color: 0x10b981, side: THREE.DoubleSide })
+          );
+          snapMarker.position.set(snapP.x, snapP.y, 0.03);
+          sketchGroupRef.current.add(snapMarker);
+        }
       } else {
-        if (curveLineRef.current) scene.remove(curveLineRef.current);
-        curveHandlesRef.current.clear();
+        sketchGroupRef.current.clear();
       }
 
       // Update Lattice Cage Wireframe
@@ -1745,6 +1986,75 @@ export const Viewport3D: React.FC = () => {
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (editorStore.isRenderMode) return;
     if (!containerRef.current || !sceneRef.current || !cameraRef.current) return;
+
+    // --- 2D CAD Sketching Real-time Snapping & Rubber Band Updates ---
+    if (editorStore.mode === 'curve') {
+      const rect = containerRef.current.getBoundingClientRect();
+      const screenX = e.clientX - rect.left;
+      const screenY = e.clientY - rect.top;
+      setCursorScreenPos({ x: screenX, y: screenY });
+
+      const mouse = new THREE.Vector2(
+        (screenX / rect.width) * 2 - 1,
+        -(screenY / rect.height) * 2 + 1
+      );
+
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(mouse, cameraRef.current);
+      const planeZ = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+      const hitPoint = new THREE.Vector3();
+
+      if (raycaster.ray.intersectPlane(planeZ, hitPoint)) {
+        const rawPos2D = new THREE.Vector2(hitPoint.x, hitPoint.y);
+        const originRef = activeDrawPointsRef.current.length > 0
+          ? activeDrawPointsRef.current[activeDrawPointsRef.current.length - 1]
+          : undefined;
+
+        const snapPoint = CadDrawingEngine.calculateSnapPoint(
+          rawPos2D,
+          editorStore.sketchEntities,
+          editorStore.sketchSettings,
+          originRef
+        );
+
+        editorStore.activeSnapPoint = snapPoint;
+        setCursorWorldPos({ x: snapPoint.position.x, y: snapPoint.position.y });
+
+        // Hover detection on sketch entities
+        let hoveredId: string | null = null;
+        for (const ent of editorStore.sketchEntities) {
+          if (ent.type === 'LINE') {
+            const dist = CadDrawingEngine.pointToSegmentDistance(snapPoint.position, ent.start, ent.end);
+            if (dist < 0.2) {
+              hoveredId = ent.id;
+              break;
+            }
+          } else if (ent.type === 'CIRCLE') {
+            const dist = Math.abs(snapPoint.position.distanceTo(ent.center) - ent.radius);
+            if (dist < 0.2) {
+              hoveredId = ent.id;
+              break;
+            }
+          }
+        }
+        editorStore.sketchHoveredEntityId = hoveredId;
+
+        // Calculate rubber band dimensions
+        if (activeDrawPointsRef.current.length > 0) {
+          const anchor = activeDrawPointsRef.current[activeDrawPointsRef.current.length - 1];
+          const dist = anchor.distanceTo(snapPoint.position);
+          const angle = (Math.atan2(snapPoint.position.y - anchor.y, snapPoint.position.x - anchor.x) * 180) / Math.PI;
+          setRubberBandInfo({
+            length: dist,
+            angleDeg: (angle + 360) % 360,
+            radius: editorStore.activeDrawTool === 'CIRCLE' ? dist : undefined,
+          });
+        } else {
+          setRubberBandInfo(null);
+        }
+      }
+      return;
+    }
 
     if (editorStore.isLassoModeActive && isLassoDraggingRef.current && lassoStart) {
       const rect = containerRef.current.getBoundingClientRect();
@@ -2089,6 +2399,148 @@ export const Viewport3D: React.FC = () => {
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return; // Left click only
 
+    // --- 2D CAD Sketching Pointer Down Actions ---
+    if (editorStore.mode === 'curve') {
+      if (!cursorWorldPos) return;
+      const pos2D = new THREE.Vector2(cursorWorldPos.x, cursorWorldPos.y);
+      const tool = editorStore.activeDrawTool;
+
+      if (tool === 'LINE') {
+        const pts = activeDrawPointsRef.current;
+        if (pts.length === 0) {
+          activeDrawPointsRef.current = [pos2D];
+        } else {
+          const startPt = pts[pts.length - 1];
+          // Check if snapping to first point of this polyline to close loop
+          if (pts.length >= 2 && pos2D.distanceTo(pts[0]) < 0.3) {
+            editorStore.addSketchEntity({
+              id: `line_${Date.now()}`,
+              type: 'LINE',
+              start: startPt.clone(),
+              end: pts[0].clone(),
+            });
+            activeDrawPointsRef.current = [];
+            setRubberBandInfo(null);
+          } else {
+            editorStore.addSketchEntity({
+              id: `line_${Date.now()}`,
+              type: 'LINE',
+              start: startPt.clone(),
+              end: pos2D.clone(),
+            });
+            activeDrawPointsRef.current.push(pos2D);
+          }
+        }
+      } else if (tool === 'RECTANGLE') {
+        const pts = activeDrawPointsRef.current;
+        if (pts.length === 0) {
+          activeDrawPointsRef.current = [pos2D];
+        } else {
+          const p1 = pts[0];
+          editorStore.addSketchEntity({
+            id: `rect_${Date.now()}`,
+            type: 'RECTANGLE',
+            start: p1.clone(),
+            end: pos2D.clone(),
+          });
+          activeDrawPointsRef.current = [];
+          setRubberBandInfo(null);
+        }
+      } else if (tool === 'CIRCLE') {
+        const pts = activeDrawPointsRef.current;
+        if (pts.length === 0) {
+          activeDrawPointsRef.current = [pos2D];
+        } else {
+          const center = pts[0];
+          const radius = Math.max(0.1, center.distanceTo(pos2D));
+          editorStore.addSketchEntity({
+            id: `circle_${Date.now()}`,
+            type: 'CIRCLE',
+            center: center.clone(),
+            radius,
+          });
+          activeDrawPointsRef.current = [];
+          setRubberBandInfo(null);
+        }
+      } else if (tool === 'ARC') {
+        const pts = activeDrawPointsRef.current;
+        if (pts.length === 0) {
+          activeDrawPointsRef.current = [pos2D]; // Center
+        } else if (pts.length === 1) {
+          activeDrawPointsRef.current.push(pos2D); // Arc Start
+        } else {
+          const center = pts[0];
+          const pStart = pts[1];
+          const radius = center.distanceTo(pStart);
+          const startAngle = Math.atan2(pStart.y - center.y, pStart.x - center.x);
+          const endAngle = Math.atan2(pos2D.y - center.y, pos2D.x - center.x);
+          editorStore.addSketchEntity({
+            id: `arc_${Date.now()}`,
+            type: 'ARC',
+            center: center.clone(),
+            radius,
+            startAngle,
+            endAngle,
+          });
+          activeDrawPointsRef.current = [];
+          setRubberBandInfo(null);
+        }
+      } else if (tool === 'SPLINE') {
+        activeDrawPointsRef.current.push(pos2D);
+        if (activeDrawPointsRef.current.length >= 3 && e.detail >= 2) {
+          // Double-click to commit spline
+          editorStore.addSketchEntity({
+            id: `spline_${Date.now()}`,
+            type: 'SPLINE',
+            points: [...activeDrawPointsRef.current],
+          });
+          activeDrawPointsRef.current = [];
+          setRubberBandInfo(null);
+        }
+      } else if (tool === 'TRIM') {
+        if (editorStore.activeSnapPoint?.entityId) {
+          editorStore.trimSketchAt(editorStore.activeSnapPoint.entityId, pos2D);
+        }
+      } else if (tool === 'EXTEND') {
+        if (editorStore.activeSnapPoint?.entityId) {
+          editorStore.extendSketchAt(editorStore.activeSnapPoint.entityId, pos2D);
+        }
+      } else if (tool === 'FILLET') {
+        if (!filletFirstLineIdRef.current) {
+          if (editorStore.activeSnapPoint?.entityId) {
+            filletFirstLineIdRef.current = editorStore.activeSnapPoint.entityId;
+          }
+        } else {
+          if (
+            editorStore.activeSnapPoint?.entityId &&
+            editorStore.activeSnapPoint.entityId !== filletFirstLineIdRef.current
+          ) {
+            editorStore.filletSketch(
+              filletFirstLineIdRef.current,
+              editorStore.activeSnapPoint.entityId,
+              editorStore.sketchSettings.filletRadius
+            );
+          }
+          filletFirstLineIdRef.current = null;
+        }
+      } else if (tool === 'OFFSET') {
+        editorStore.offsetSketch(editorStore.sketchSettings.offsetDistance);
+      } else if (tool === 'SELECT') {
+        if (editorStore.activeSnapPoint?.entityId) {
+          const id = editorStore.activeSnapPoint.entityId;
+          if (editorStore.sketchSelectedEntityIds.includes(id)) {
+            editorStore.sketchSelectedEntityIds = editorStore.sketchSelectedEntityIds.filter(
+              i => i !== id
+            );
+          } else {
+            editorStore.sketchSelectedEntityIds.push(id);
+          }
+          editorStore.notify();
+        }
+      }
+      return;
+    }
+
     if (editorStore.isLassoModeActive) {
       if (!containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
@@ -2403,6 +2855,24 @@ export const Viewport3D: React.FC = () => {
     }
   }
 
+  const getCanvasCursorClass = () => {
+    if (editorStore.isPanMode) return 'cursor-grab active:cursor-grabbing';
+    if (editorStore.isLassoModeActive) return 'cursor-crosshair';
+    if (drawingDataRef.current !== null) return 'cursor-crosshair';
+
+    if (editorStore.mode === 'curve') {
+      if (editorStore.activeDrawTool === 'SELECT') return 'cursor-default';
+      if (['TRIM', 'EXTEND', 'FILLET', 'OFFSET'].includes(editorStore.activeDrawTool)) return 'cursor-pointer';
+      return 'cursor-crosshair';
+    }
+
+    if (editorStore.mode === 'sculpt') {
+      return 'cursor-none';
+    }
+
+    return 'cursor-default';
+  };
+
   return (
     <div
       ref={containerRef}
@@ -2410,9 +2880,7 @@ export const Viewport3D: React.FC = () => {
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
       onPointerLeave={() => setHoveredFaceIndex(null)}
-      className={`flex-1 w-full h-full relative ${
-        editorStore.isPanMode ? 'cursor-grab active:cursor-grabbing' : 'cursor-crosshair'
-      } bg-[#0B0D10] overflow-hidden select-none`}
+      className={`flex-1 w-full h-full relative ${getCanvasCursorClass()} bg-[#0B0D10] overflow-hidden select-none`}
     >
       {/* Top Left Floating Widgets (Orientation Gizmo, Transform Toolbar & Navigation Toolbar) */}
       <div className="absolute top-4 left-4 z-20 flex flex-col items-center gap-[14px] select-none pointer-events-auto">
@@ -2443,6 +2911,15 @@ export const Viewport3D: React.FC = () => {
         <div className="absolute inset-0 z-50 bg-[#1e1e1e] p-2">
           <ScriptEditor />
         </div>
+      )}
+
+      {/* 2D CAD Sketch Overlay HUD */}
+      {editorStore.mode === 'curve' && (
+        <SketchOverlayHUD
+          cursorScreenPos={cursorScreenPos}
+          cursorWorldPos={cursorWorldPos}
+          rubberBandInfo={rubberBandInfo}
+        />
       )}
 
       {/* 3D Lasso/Box Selection Visual Overlay */}

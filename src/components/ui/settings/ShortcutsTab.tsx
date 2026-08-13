@@ -7,8 +7,10 @@
 import React, { useState, useMemo } from 'react';
 import { Keyboard, Search, Command } from 'lucide-react';
 import { DEFAULT_SHORTCUTS, ShortcutItem } from '../../../types/settings';
+import { useTranslation } from '../../../context/LanguageContext';
 
 export const ShortcutsTab: React.FC = () => {
+  const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
 
   const filteredShortcuts = useMemo(() => {
@@ -42,7 +44,7 @@ export const ShortcutsTab: React.FC = () => {
           type="text"
           value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}
-          placeholder="Rechercher un raccourci clavier (ex: Extrude, Suppr, Ctrl+Z, Gizmo...)"
+          placeholder={t.shortcuts.searchPlaceholder}
           className="w-full bg-[#121418] border border-[#242830] focus:border-blue-500 rounded-xl pl-10 pr-4 py-2.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none transition-colors"
         />
         {searchQuery && (
@@ -50,7 +52,7 @@ export const ShortcutsTab: React.FC = () => {
             onClick={() => setSearchQuery('')}
             className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-200"
           >
-            Effacer
+            {t.common.clear}
           </button>
         )}
       </div>
@@ -58,7 +60,7 @@ export const ShortcutsTab: React.FC = () => {
       {/* Shortcuts Category Sections */}
       {Object.keys(categories).length === 0 ? (
         <div className="p-8 text-center bg-[#121418] border border-[#242830] rounded-xl text-slate-400 text-xs">
-          Aucun raccourci ne correspond à votre recherche "{searchQuery}".
+          {t.shortcuts.noResults} "{searchQuery}".
         </div>
       ) : (
         Object.entries(categories).map(([categoryName, items]) => (
@@ -101,9 +103,10 @@ export const ShortcutsTab: React.FC = () => {
       <div className="p-3.5 rounded-lg border border-[#282E3B] bg-[#12151B] text-xs text-slate-400 flex items-center space-x-2">
         <Keyboard className="w-4 h-4 text-slate-400 flex-shrink-0" />
         <span>
-          Les raccourcis clavier sont actifs dans l'ensemble de l'espace de modélisation 3D (sauf lors de la saisie de texte).
+          {t.shortcuts.notice}
         </span>
       </div>
     </div>
   );
 };
+

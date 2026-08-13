@@ -30,10 +30,13 @@ import {
 import * as THREE from 'three';
 import { editorStore } from '../../store/EditorStore';
 import { exportToOBJ, exportToSTL, downloadFile } from '../../core/export/exporter';
+import { useTranslation } from '../../context/LanguageContext';
 
 export const HeaderBar: React.FC = () => {
+  const { t } = useTranslation();
   const [, setTick] = useState(0);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
+
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -334,7 +337,7 @@ export const HeaderBar: React.FC = () => {
                 onMouseLeave={() => setActiveMenu(null)}
               >
                 <div className="flex items-center justify-between px-2 py-1 border-b border-[#2D3139]/60">
-                  <span className="font-bold text-[10px] text-[#8E9299] uppercase tracking-wider">Paramètres du Studio</span>
+                  <span className="font-bold text-[10px] text-[#8E9299] uppercase tracking-wider">{t.optimization.modalTitle}</span>
                   <button 
                     onClick={() => setActiveMenu(null)}
                     className="text-slate-500 hover:text-slate-300 text-[10px] font-sans"
@@ -352,7 +355,7 @@ export const HeaderBar: React.FC = () => {
                 >
                   <span className="flex items-center space-x-2">
                     <span className="text-blue-400">⚡</span>
-                    <span>Optimisation & VRAM (Three.js)</span>
+                    <span>{t.sidebar.optimization}</span>
                   </span>
                   <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-1 rounded">GPU</span>
                 </button>
@@ -365,7 +368,7 @@ export const HeaderBar: React.FC = () => {
                   className="w-full text-left px-2.5 py-1.5 rounded hover:bg-[#2D3139] hover:text-blue-400 flex items-center space-x-2 transition-colors"
                 >
                   <span>🌐</span>
-                  <span>Langues & Localisation</span>
+                  <span>{t.sidebar.language}</span>
                 </button>
 
                 <button
@@ -376,7 +379,7 @@ export const HeaderBar: React.FC = () => {
                   className="w-full text-left px-2.5 py-1.5 rounded hover:bg-[#2D3139] hover:text-blue-400 flex items-center space-x-2 transition-colors"
                 >
                   <span>🎨</span>
-                  <span>Thèmes (Jour / Nuit / Sombre)</span>
+                  <span>{t.sidebar.themes}</span>
                 </button>
 
                 <button
@@ -387,7 +390,7 @@ export const HeaderBar: React.FC = () => {
                   className="w-full text-left px-2.5 py-1.5 rounded hover:bg-[#2D3139] hover:text-blue-400 flex items-center space-x-2 transition-colors"
                 >
                   <span>⌨️</span>
-                  <span>Raccourcis Clavier (Hotkeys)</span>
+                  <span>{t.sidebar.shortcuts}</span>
                 </button>
 
                 <div className="border-t border-[#2D3139]/60 pt-1">
@@ -398,7 +401,7 @@ export const HeaderBar: React.FC = () => {
                     }}
                     className="w-full text-center py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 rounded text-[11px] font-medium transition-colors"
                   >
-                    Ouvrir le panneau complet
+                    {t.optimization.modalTitle}
                   </button>
                 </div>
               </div>

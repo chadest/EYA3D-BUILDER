@@ -7,13 +7,24 @@
 import React from 'react';
 import { Languages, Check, Globe } from 'lucide-react';
 import { SupportedLanguage, SUPPORTED_LANGUAGES } from '../../../types/settings';
+import { useTranslation } from '../../../context/LanguageContext';
 
 interface LanguagesTabProps {
-  currentLanguage: SupportedLanguage;
-  onChangeLanguage: (lang: SupportedLanguage) => void;
+  currentLanguage?: SupportedLanguage;
+  onChangeLanguage?: (lang: SupportedLanguage) => void;
 }
 
 export const LanguagesTab: React.FC<LanguagesTabProps> = ({ currentLanguage, onChangeLanguage }) => {
+  const { language, setLanguage, t } = useTranslation();
+  const activeLang = currentLanguage || language;
+
+  const handleSelectLanguage = (code: SupportedLanguage) => {
+    setLanguage(code);
+    if (onChangeLanguage) {
+      onChangeLanguage(code);
+    }
+  };
+
   return (
     <div id="settings-tab-languages" className="space-y-6 animate-fadeIn pb-6">
       {/* Header Info */}
@@ -22,9 +33,9 @@ export const LanguagesTab: React.FC<LanguagesTabProps> = ({ currentLanguage, onC
           <Globe className="w-5 h-5" />
         </div>
         <div>
-          <h4 className="text-sm font-semibold text-slate-100">Langue de l'Espace de Travail</h4>
+          <h4 className="text-sm font-semibold text-slate-100">{t.languages.title}</h4>
           <p className="text-xs text-slate-400 mt-0.5">
-            Sélectionnez la langue principale pour l'interface utilisateur, les infobulles CAO et les raccourcis.
+            {t.languages.selectLanguage}
           </p>
         </div>
       </div>
@@ -32,12 +43,12 @@ export const LanguagesTab: React.FC<LanguagesTabProps> = ({ currentLanguage, onC
       {/* Language Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {SUPPORTED_LANGUAGES.map(lang => {
-          const isSelected = currentLanguage === lang.code;
+          const isSelected = activeLang === lang.code;
           return (
             <button
               key={lang.code}
               type="button"
-              onClick={() => onChangeLanguage(lang.code)}
+              onClick={() => handleSelectLanguage(lang.code)}
               className={`flex items-center justify-between p-4 rounded-xl border transition-all text-left cursor-pointer ${
                 isSelected
                   ? 'bg-gradient-to-r from-blue-950/50 to-[#181E29] border-blue-500/80 shadow-md shadow-blue-500/10'
@@ -53,7 +64,7 @@ export const LanguagesTab: React.FC<LanguagesTabProps> = ({ currentLanguage, onC
                     <span>{lang.name}</span>
                     {lang.code === 'fr' && (
                       <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-blue-500/20 text-blue-300 border border-blue-500/40">
-                        Par défaut
+                        {t.languages.defaultTag}
                       </span>
                     )}
                   </div>
@@ -79,9 +90,10 @@ export const LanguagesTab: React.FC<LanguagesTabProps> = ({ currentLanguage, onC
       <div className="p-3.5 rounded-lg border border-[#282E3B] bg-[#12151B] text-xs text-slate-400 flex items-center space-x-2">
         <Languages className="w-4 h-4 text-slate-400 flex-shrink-0" />
         <span>
-          Les modifications linguistiques s'appliquent immédiatement à l'ensemble des modules d'inspection et outils 3D.
+          {t.languages.notice}
         </span>
       </div>
     </div>
   );
 };
+

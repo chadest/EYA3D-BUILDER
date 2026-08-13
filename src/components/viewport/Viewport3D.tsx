@@ -37,6 +37,7 @@ import { ScriptEditor } from '../ui/ScriptEditor';
 import { RealisticRenderPipeline } from '../../core/rendering/renderPipeline';
 import { StudioCyclorama } from './StudioCyclorama';
 import { physicsEngine } from '../../core/physics/PhysicsEngine';
+import { threeOptimizationEngine } from '../../core/optimization/threeOptimizationEngine';
 
 // 1. Interactive 3D Coordinate Axis Orientation Gizmo (Matching User Screenshot)
 interface ViewOrientationGizmoProps {
@@ -1376,10 +1377,30 @@ export const Viewport3D: React.FC = () => {
       editorStore.addObject('Cube Primitive', initMesh);
     }
 
+    // Apply Initial Optimization Engine Settings
+    threeOptimizationEngine.applySettings(
+      threeOptimizationEngine.getSettings(),
+      scene,
+      renderer
+    );
+
     // 9. ANIMATION LOOP
     let animationFrameId: number;
+    let lastRenderTime = performance.now();
+
     const animate = () => {
       animationFrameId = requestAnimationFrame(animate);
+
+      // FPS Limiter Control
+      const frameIntervalMs = threeOptimizationEngine.getFrameIntervalMs();
+      if (frameIntervalMs > 0) {
+        const now = performance.now();
+        const elapsed = now - lastRenderTime;
+        if (elapsed < frameIntervalMs) {
+          return; // Throttled: Skip frame to avoid GPU heating
+        }
+        lastRenderTime = now - (elapsed % frameIntervalMs);
+      }
 
       if (editorStore.isPhysicsActive) {
         physicsEngine.step();
@@ -1396,13 +1417,16 @@ export const Viewport3D: React.FC = () => {
           Math.abs(curPos[2] - meshPos.z) > 0.001
         ) {
           editorStore.setSunPosition([meshPos.x, meshPos.y, meshPos.z]);
+          threeOptimizationEngine.requestShadowUpdate(rendererRef.current);
         }
       }
 
       // Handle Render Mode vs Edit Mode (Shadows and Work Lights)
       if (rendererRef.current && sceneRef.current) {
         const isRender = editorStore.isRenderMode;
+        const optSettings = threeOptimizationEngine.getSettings();
         rendererRef.current.shadowMap.enabled = isRender;
+        rendererRef.current.shadowMap.autoUpdate = isRender && !optSettings.ecoStaticShadows;
         
         const workLights = (sceneRef.current as any).workLightGroup;
         if (workLights) {
@@ -1424,6 +1448,7 @@ export const Viewport3D: React.FC = () => {
         if (obj.mesh) {
           if (!scene.children.includes(obj.mesh)) {
             scene.add(obj.mesh);
+            threeOptimizationEngine.applyFrustumCullingToObject(obj.mesh);
           }
 
           const mat = obj.mesh.material;

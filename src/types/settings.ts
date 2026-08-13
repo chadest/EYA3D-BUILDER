@@ -5,6 +5,7 @@
  */
 
 export type RendererEngineType = 'webgl' | 'webgpu';
+export type FpsLimitOption = '30' | '60' | 'max';
 
 export interface OptimizationSettings {
   // Section A: Caches & VRAM Memory Management
@@ -14,10 +15,19 @@ export interface OptimizationSettings {
   browserNetworkCacheBypass: boolean;    // Désactive/vide CacheStorage pour garantir la fraîcheur UI
   cacheBusting3D: boolean;               // Injection dynamique de ?v=timestamp sur les URLs de textures & GLTF
 
-  // Section B: Render Engine Settings
+  // Section B: Render Engine Settings & Advanced Switches
   primaryRenderer: RendererEngineType;   // 'webgl' (stable standard) vs 'webgpu' (expérimental)
   highPerformanceGPU: boolean;           // powerPreference: "high-performance" (active GPU dédié Nvidia/AMD)
   dracoWorkerMultithreading: boolean;    // Décodage géométrie multithreadé via Web Workers & DRACOLoader
+  
+  // Nouveaux Switchs d'Optimisation Avancée Three.js
+  ecoStaticShadows: boolean;             // Ombres Éco / Fixes (renderer.shadowMap.autoUpdate = false)
+  fpsLimiterEnabled: boolean;            // Limiteur de FPS activé
+  fpsLimit: FpsLimitOption;              // Palier de limitation FPS ('30', '60', 'max')
+  hardwareAntialias: boolean;            // Anticrénelage matériel (antialias WebGLRenderer / scaling pixel ratio)
+  aggressiveFrustumCulling: boolean;     // Masquage hors-champ agressif (force mesh.frustumCulled = true)
+  antiFreezeDetectorEnabled: boolean;    // Détecteur Anti-Freeze Actif (Surveillance Web Worker >1500ms)
+  antiFreezeThresholdMs: number;         // Seuil de détection du freeze en millisecondes (défaut: 1500ms)
 
   // Section C: Automation & Periodic System
   periodicAutoOptimization: boolean;     // Garbage collector Three.js périodique
@@ -66,6 +76,13 @@ export const DEFAULT_OPTIMIZATION_SETTINGS: OptimizationSettings = {
   primaryRenderer: 'webgl',
   highPerformanceGPU: true,
   dracoWorkerMultithreading: true,
+  ecoStaticShadows: false,
+  fpsLimiterEnabled: false,
+  fpsLimit: '60',
+  hardwareAntialias: true,
+  aggressiveFrustumCulling: true,
+  antiFreezeDetectorEnabled: true,
+  antiFreezeThresholdMs: 1500,
   periodicAutoOptimization: true,
   autoOptimizationIntervalMinutes: 5,
 };

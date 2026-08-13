@@ -107,6 +107,54 @@ class EditorStore {
   public activeThreeCamera: THREE.PerspectiveCamera | null = null;
   public activeThreeRenderer: THREE.WebGLRenderer | null = null;
 
+  // Anti-Freeze Emergency Rescue State & Visual Alert
+  public antiFreezeAlert: {
+    isOpen: boolean;
+    info: {
+      timestamp: number;
+      lagDurationMs: number;
+      thresholdMs: number;
+      freedGeometries: number;
+      freedTextures: number;
+      degradedOptions: string[];
+    } | null;
+  } = {
+    isOpen: false,
+    info: null,
+  };
+
+  public triggerAntiFreezeRescue(info: {
+    timestamp: number;
+    lagDurationMs: number;
+    thresholdMs: number;
+    freedGeometries: number;
+    freedTextures: number;
+    degradedOptions: string[];
+  }): void {
+    this.antiFreezeAlert = {
+      isOpen: true,
+      info,
+    };
+    this.notify();
+  }
+
+  public dismissAntiFreezeAlert(): void {
+    this.antiFreezeAlert.isOpen = false;
+    this.notify();
+  }
+
+  public restoreGraphicsAfterRescue(): void {
+    if (this.activeThreeRenderer) {
+      this.activeThreeRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      if (this.activeThreeRenderer.shadowMap) {
+        this.activeThreeRenderer.shadowMap.autoUpdate = true;
+        this.activeThreeRenderer.shadowMap.needsUpdate = true;
+      }
+    }
+    this.antiFreezeAlert.isOpen = false;
+    this.notify();
+  }
+
   public openSettings(tab: 'optimization' | 'languages' | 'themes' | 'shortcuts' = 'optimization'): void {
     this.settingsInitialTab = tab;
     this.isSettingsModalOpen = true;

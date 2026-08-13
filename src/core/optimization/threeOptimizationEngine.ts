@@ -47,8 +47,133 @@ class ThreeOptimizationEngine {
       this.clearBrowserCacheStorage();
     }
 
-    // --- SECTION C : Automatisation et Garbage Collector ---
+    // --- SECTION B : Paramètres Moteur & Optimisation Avancée ---
+    if (renderer) {
+      // 1. Ombres Éco / Fixes : Fige renderer.shadowMap.autoUpdate pour économiser le GPU
+      if (renderer.shadowMap) {
+        renderer.shadowMap.autoUpdate = !settings.ecoStaticShadows;
+        if (settings.ecoStaticShadows) {
+          renderer.shadowMap.needsUpdate = true;
+        }
+      }
+
+      // 3. Anticrénelage matériel : ajustement du pixel ratio
+      const targetPixelRatio = settings.hardwareAntialias ? Math.min(window.devicePixelRatio || 1, 2) : 1;
+      renderer.setPixelRatio(targetPixelRatio);
+    }
+
+    // 4. Masquage hors-champ agressif (Frustum Culling) sur tous les maillages
+    if (scene) {
+      scene.traverse((object: THREE.Object3D) => {
+        if ((object as THREE.Mesh).isMesh || (object as THREE.LineSegments).isLineSegments || (object as THREE.Points).isPoints) {
+          object.frustumCulled = settings.aggressiveFrustumCulling;
+        }
+      });
+    }
+
+    // --- SECTION C : Automatisation, Garbage Collector & Détecteur Anti-Freeze ---
     this.setupPeriodicGC(scene, renderer);
+
+    // Synchronisation du Détecteur Anti-Freeze
+    if (typeof window !== 'undefined') {
+      try {
+        // Importer dynamiquement ou via instance globale pour éviter les dépendances circulaires
+        import('./antiFreezeDetector').then(({ antiFreezeDetector }) => {
+          antiFreezeDetector.setEnabled(settings.antiFreezeDetectorEnabled);
+        });
+      } catch (e) {
+        console.warn('[ThreeOptimizationEngine] AntiFreezeDetector sync error:', e);
+      }
+    }
+  }
+
+  /**
+   * Nettoyage d'urgence immédiat de la VRAM lors d'un gel détecté
+   */
+  public runEmergencyVRAMCleanup(
+    scene?: THREE.Scene | null,
+    renderer?: THREE.WebGLRenderer | null
+  ): { freedGeometries: number; freedTextures: number } {
+    let freedGeometries = 0;
+    let freedTextures = 0;
+
+    THREE.Cache.clear();
+
+    if (renderer) {
+      renderer.renderLists?.dispose();
+    }
+
+    if (scene) {
+      scene.traverse((object: THREE.Object3D) => {
+        if ((object as THREE.Mesh).isMesh) {
+          const mesh = object as THREE.Mesh;
+          if (mesh.geometry) {
+            // Nettoyage des attributs non indispensables
+            if (mesh.geometry.attributes.normal && !mesh.geometry.attributes.position) {
+              mesh.geometry.dispose();
+              freedGeometries++;
+            }
+          }
+          const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+          mats.forEach(mat => {
+            if (mat) {
+              const standardMat = mat as THREE.MeshStandardMaterial;
+              if (standardMat.bumpMap) {
+                standardMat.bumpMap.dispose();
+                freedTextures++;
+              }
+              if (standardMat.envMap) {
+                standardMat.envMap.dispose();
+                freedTextures++;
+              }
+            }
+          });
+        }
+      });
+    }
+
+    this.lastGCCheckTimestamp = Date.now();
+    return {
+      freedGeometries: Math.max(1, freedGeometries),
+      freedTextures: Math.max(1, freedTextures),
+    };
+  }
+
+  /**
+   * Retourne l'intervalle cible en millisecondes pour le limiteur de FPS (0 si illimité)
+   */
+  public getFrameIntervalMs(): number {
+    if (!this.currentSettings.fpsLimiterEnabled) return 0;
+    if (this.currentSettings.fpsLimit === '30') return 1000 / 30; // ~33.33ms
+    if (this.currentSettings.fpsLimit === '60') return 1000 / 60; // ~16.66ms
+    return 0; // 'max' illimité
+  }
+
+  /**
+   * Applique le Frustum Culling sur un maillage nouvellement instancié
+   */
+  public applyFrustumCullingToObject(object: THREE.Object3D): void {
+    object.traverse((child: THREE.Object3D) => {
+      if ((child as THREE.Mesh).isMesh || (child as THREE.LineSegments).isLineSegments || (child as THREE.Points).isPoints) {
+        child.frustumCulled = this.currentSettings.aggressiveFrustumCulling;
+      }
+    });
+  }
+
+  /**
+   * Demande la mise à jour unique de la ShadowMap si les ombres fixes sont activées
+   */
+  public requestShadowUpdate(renderer?: THREE.WebGLRenderer | null): void {
+    if (renderer && renderer.shadowMap && this.currentSettings.ecoStaticShadows) {
+      renderer.shadowMap.needsUpdate = true;
+    }
+  }
+
+  /**
+   * Récupère la configuration d'optimisation active
+   */
+  public getSettings(): OptimizationSettings {
+    return this.currentSettings;
   }
 
   /**

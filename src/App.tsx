@@ -12,6 +12,7 @@ import { PropertyPanel } from './components/ui/PropertyPanel';
 import { StatusBar } from './components/ui/StatusBar';
 import { InteractivePrimitivePopup } from './components/ui/InteractivePrimitivePopup';
 import { SettingsModal } from './components/ui/settings/SettingsModal';
+import { AntiFreezeRescueBanner } from './components/ui/AntiFreezeRescueBanner';
 import { editorStore } from './store/EditorStore';
 import { addDirectPrimitive } from './core/primitives/interactivePrimitives';
 
@@ -58,6 +59,9 @@ export default function App() {
 
       {/* Main Workspace Area (3D Viewport + Right Inspector Panel) */}
       <div className="flex flex-1 relative overflow-hidden">
+        {/* Anti-Freeze Emergency Rescue Banner */}
+        <AntiFreezeRescueBanner />
+
         {/* Center 3D Viewport with ViewCube and Transform Panel */}
         <Viewport3D />
 

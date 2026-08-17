@@ -1557,9 +1557,19 @@ export const Viewport3D: React.FC = () => {
       }
 
       const selObj = editorStore.getSelectedObject();
-      if (selObj && selObj.mesh && editorStore.mode === 'object') {
-        if (transformControls.object !== selObj.mesh) {
-          transformControls.attach(selObj.mesh);
+      if (editorStore.mode === 'object') {
+        if (selObj && selObj.mesh) {
+          if (transformControls.object !== selObj.mesh) {
+            transformControls.attach(selObj.mesh);
+          }
+        } else {
+          transformControls.detach();
+        }
+      } else if (editorStore.mode === 'edit') {
+        // In edit mode, TransformControls is attached to editDummyRef.current when sub-elements are selected.
+        // It is managed by the visual edit helpers synchronization effect.
+        if (transformControls.object && transformControls.object !== editDummyRef.current) {
+          transformControls.detach();
         }
       } else {
         transformControls.detach();
@@ -2335,7 +2345,8 @@ export const Viewport3D: React.FC = () => {
             }
           }
         }
-        editorStore.selectedElements = captured;
+        editorStore.selectedIndices.vertices = captured;
+        editorStore.notify();
       } else if (editorStore.selectionLevel === 'edge') {
         const edgesList = getEdgesList(geom);
         const captured: number[] = [];
@@ -2362,7 +2373,8 @@ export const Viewport3D: React.FC = () => {
             }
           }
         });
-        editorStore.selectedElements = captured;
+        editorStore.selectedIndices.edges = captured;
+        editorStore.notify();
       } else if (editorStore.selectionLevel === 'face') {
         const faceCount = geom.index ? geom.index.count / 3 : geom.attributes.position.count / 3;
         const captured: number[] = [];
@@ -2390,7 +2402,8 @@ export const Viewport3D: React.FC = () => {
             }
           }
         }
-        editorStore.selectedElements = captured;
+        editorStore.selectedIndices.faces = captured;
+        editorStore.notify();
       }
       setHelperTrigger(t => t + 1);
     }

@@ -327,9 +327,54 @@ class EditorStore {
     this.notify();
   }
 
-  // Physics Settings
+  // Physics Settings & Interactive Simulation
   public isPhysicsActive: boolean = false;
   public physicsInitialTransforms: Record<string, { position: THREE.Vector3, rotation: THREE.Euler }> = {};
+  public simulationInteractionMode: 'grab' | 'push' | 'explode' = 'grab';
+  public simulationBrushRadius: number = 1.0;
+  public simulationSpringStrength: number = 30.0;
+  public simulationExplosionForce: number = 40.0;
+  public simulationExplosionChunks: number = 16;
+  public isPhysicsGrabbing: boolean = false;
+
+  public setSimulationInteractionMode(mode: 'grab' | 'push' | 'explode'): void {
+    this.simulationInteractionMode = mode;
+    this.notify();
+  }
+
+  public setSimulationBrushRadius(radius: number): void {
+    this.simulationBrushRadius = Math.max(0.2, Math.min(5.0, radius));
+    this.notify();
+  }
+
+  public setSimulationSpringStrength(strength: number): void {
+    this.simulationSpringStrength = Math.max(5.0, Math.min(100.0, strength));
+    this.notify();
+  }
+
+  public setSimulationExplosionForce(force: number): void {
+    this.simulationExplosionForce = Math.max(10.0, Math.min(150.0, force));
+    this.notify();
+  }
+
+  public setSimulationExplosionChunks(chunks: number): void {
+    this.simulationExplosionChunks = Math.max(4, Math.min(48, Math.round(chunks)));
+    this.notify();
+  }
+
+  public explodeSelectedSolid(epicenter?: THREE.Vector3): void {
+    const selObj = this.getSelectedObject();
+    if (!selObj || !selObj.mesh) return;
+
+    // Dynamically import MeshExplosionEngine to perform shatter
+    import('../core/physics/MeshExplosionEngine').then(({ MeshExplosionEngine }) => {
+      MeshExplosionEngine.explodeSolid(selObj, {
+        blastForce: this.simulationExplosionForce,
+        chunkCount: this.simulationExplosionChunks,
+        epicenter: epicenter || selObj.mesh!.position.clone()
+      });
+    });
+  }
 
   public togglePhysics(): void {
     if (!this.isPhysicsActive) {
@@ -364,6 +409,44 @@ class EditorStore {
     
     // Clear snapshot
     this.physicsInitialTransforms = {};
+    this.notify();
+  }
+
+  // Animation State & Controls
+  public isAnimationPlaying: boolean = false;
+  public animationCurrentFrame: number = 0;
+  public animationTotalFrames: number = 120;
+  public animationFps: number = 30;
+  public isTurntableActive: boolean = false;
+  public turntableSpeed: number = 1.0;
+  public keyframes: Record<number, Record<string, { position: [number, number, number]; rotation: [number, number, number]; scale: [number, number, number] }>> = {};
+
+  public toggleAnimationPlay(): void {
+    this.isAnimationPlaying = !this.isAnimationPlaying;
+    this.notify();
+  }
+
+  public setAnimationFrame(frame: number): void {
+    this.animationCurrentFrame = Math.max(0, Math.min(frame, this.animationTotalFrames));
+    this.notify();
+  }
+
+  public toggleTurntable(): void {
+    this.isTurntableActive = !this.isTurntableActive;
+    this.notify();
+  }
+
+  public addKeyframeForSelected(): void {
+    const sel = this.getSelectedObject();
+    if (!sel || !sel.mesh) return;
+    if (!this.keyframes[this.animationCurrentFrame]) {
+      this.keyframes[this.animationCurrentFrame] = {};
+    }
+    this.keyframes[this.animationCurrentFrame][sel.id] = {
+      position: [sel.mesh.position.x, sel.mesh.position.y, sel.mesh.position.z],
+      rotation: [sel.mesh.rotation.x, sel.mesh.rotation.y, sel.mesh.rotation.z],
+      scale: [sel.mesh.scale.x, sel.mesh.scale.y, sel.mesh.scale.z],
+    };
     this.notify();
   }
 
@@ -786,8 +869,23 @@ class EditorStore {
       if (targetMesh && targetMesh.parent) {
         targetMesh.parent.remove(targetMesh);
       }
-      if (targetObj.mesh?.geometry) {
-        targetObj.mesh.geometry.dispose();
+      if (targetObj.mesh) {
+        if (targetObj.mesh.geometry) {
+          targetObj.mesh.geometry.dispose();
+        }
+        const mats = Array.isArray(targetObj.mesh.material) ? targetObj.mesh.material : [targetObj.mesh.material];
+        mats.forEach(mat => {
+          if (mat) {
+            const standardMat = mat as THREE.MeshStandardMaterial;
+            if (standardMat.map) standardMat.map.dispose();
+            if (standardMat.normalMap) standardMat.normalMap.dispose();
+            if (standardMat.roughnessMap) standardMat.roughnessMap.dispose();
+            if (standardMat.metalnessMap) standardMat.metalnessMap.dispose();
+            if (standardMat.bumpMap) standardMat.bumpMap.dispose();
+            if (standardMat.envMap) standardMat.envMap.dispose();
+            standardMat.dispose();
+          }
+        });
       }
       this.objects = this.objects.filter(o => o.id !== id);
       if (this.selectedObjectId === id) {

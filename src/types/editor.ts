@@ -17,7 +17,9 @@ export type EditorMode =
   | 'curve'        // Splines & NURBS (Curve placement, Lathe, Sweep/Loft)
   | 'csg'          // Boolean operations (Union, Difference, Intersection)
   | 'parametric'   // Modifiers (Array, Mirror, SubD)
-  | 'deform';      // Twist, Bend, Lattice Cage
+  | 'deform'       // Twist, Bend, Lattice Cage
+  | 'animation'    // Keyframing, Timeline, Turntable, Playback
+  | 'simulation';  // Physics, Rigid Body, Gravity, Dynamics
 
 // Sculpting Brush Modes
 export type SculptMode =

@@ -4,7 +4,7 @@
  * Contextual Tool Shelf & Modeling Operations Control Panel (SelfCAD Icon-First Style)
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useTransition } from 'react';
 import {
   Box,
   Circle,
@@ -45,7 +45,17 @@ import {
   Ruler,
   Crosshair,
   Magnet,
+  Film,
+  Activity,
+  Play,
+  Pause,
+  SkipBack,
+  SkipForward,
+  RotateCcw,
+  Key,
+  Flame,
 } from 'lucide-react';
+import { motion } from 'motion/react';
 import * as THREE from 'three';
 import { DrawToolType } from '../../types/drawing';
 import { editorStore } from '../../store/EditorStore';
@@ -74,6 +84,7 @@ import { generateDefaultLatticeCage } from '../../core/deformation/lattice';
 
 export const ToolShelf: React.FC = () => {
   const [, setTick] = useState(0);
+  const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
     return editorStore.subscribe(() => setTick(t => t + 1));
@@ -81,6 +92,30 @@ export const ToolShelf: React.FC = () => {
 
   const mode = editorStore.mode;
   const selObj = editorStore.getSelectedObject();
+
+  const handleSetMode = (targetMode: EditorMode) => {
+    startTransition(() => {
+      editorStore.setMode(targetMode);
+    });
+  };
+
+  const handleToggleRenderMode = () => {
+    startTransition(() => {
+      editorStore.toggleRenderMode();
+    });
+  };
+
+  const handleToggleXRayMode = () => {
+    startTransition(() => {
+      editorStore.toggleXRayMode();
+    });
+  };
+
+  const handleSetMainTab = (tab: 'preview' | 'code') => {
+    startTransition(() => {
+      editorStore.setMainTab(tab);
+    });
+  };
 
   // Primitive adding helper
   const handleAddPrimitive = (type: string) => {
@@ -229,6 +264,8 @@ export const ToolShelf: React.FC = () => {
     { id: 'curve', label: 'Drawing', icon: <Compass className="w-4 h-4" /> },
     { id: 'csg', label: 'Booleans', icon: <Layers className="w-4 h-4" /> },
     { id: 'deform', label: 'Deform', icon: <Maximize2 className="w-4 h-4" /> },
+    { id: 'animation', label: 'Animation', icon: <Film className="w-4 h-4" /> },
+    { id: 'simulation', label: 'Simulation', icon: <Activity className="w-4 h-4" /> },
   ];
 
   const sculptBrushes: { mode: SculptMode; label: string; icon: React.ReactNode }[] = [
@@ -245,30 +282,42 @@ export const ToolShelf: React.FC = () => {
 
   return (
     <div id="tool-shelf" className="bg-[#1C1E22] border-b border-[#2D3139] text-[#E0E0E0] px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 select-none z-20">
-      {/* Mode Navigation Tabs */}
-      <div className="flex items-center space-x-1 bg-[#0F1113] p-1 rounded border border-[#2D3139]">
-        {modes.map(m => (
-          <button
-            key={m.id}
-            onClick={() => editorStore.setMode(m.id)}
-            className={`flex items-center space-x-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-all ${
-              mode === m.id
-                ? 'bg-[#2D3139] text-white border border-[#4A90E2] shadow-sm'
-                : 'text-[#8E9299] hover:text-white'
-            }`}
-            title={m.label}
-          >
-            {m.icon}
-            <span className="hidden sm:inline text-[11px]">{m.label}</span>
-          </button>
-        ))}
+      {/* Mode Navigation Tabs (50% Rounded Circular Icon Items with Smooth Transitions & No Text) */}
+      <div className="flex items-center space-x-1.5 bg-[#0F1113] p-1 rounded-full border border-[#2D3139]">
+        {modes.map(m => {
+          const isActive = mode === m.id;
+          return (
+            <motion.button
+              key={m.id}
+              whileHover={{ scale: 1.12 }}
+              whileTap={{ scale: 0.92 }}
+              transition={{ type: 'spring', stiffness: 450, damping: 25 }}
+              onClick={() => handleSetMode(m.id)}
+              className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
+                isActive
+                  ? 'bg-[#4A90E2] text-white shadow-md shadow-[#4A90E2]/30 border border-[#6BA4E8]'
+                  : 'text-[#8E9299] hover:text-white hover:bg-[#2D3139]'
+              }`}
+              title={m.label}
+            >
+              {isActive && (
+                <motion.div
+                  layoutId="activeModePill"
+                  className="absolute inset-0 rounded-full bg-[#4A90E2] -z-10 shadow-md shadow-blue-500/30"
+                  transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                />
+              )}
+              {m.icon}
+            </motion.button>
+          );
+        })}
 
         <div className="h-4 w-px bg-[#2D3139] mx-1" />
 
         {/* SPECIAL MODULE: Mode Rendu Réaliste (Render Mode Toggle) after Deform */}
         <button
-          onClick={() => editorStore.toggleRenderMode()}
-          className={`flex items-center space-x-1.5 px-2.5 py-1 rounded text-xs font-bold transition-all cursor-pointer ${
+          onClick={handleToggleRenderMode}
+          className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
             editorStore.isRenderMode
               ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md shadow-amber-500/20 border border-amber-400 font-bold'
               : 'text-[#8E9299] hover:text-white hover:bg-[#2D3139]'
@@ -282,7 +331,7 @@ export const ToolShelf: React.FC = () => {
           <Camera className={`w-3.5 h-3.5 ${editorStore.isRenderMode ? 'text-slate-950' : 'text-amber-400'}`} />
           <span className="text-[11px] font-bold">Rendu</span>
           <span
-            className={`text-[9px] px-1 py-0.2 rounded uppercase font-black ${
+            className={`text-[9px] px-1 py-0.2 rounded-full uppercase font-black ${
               editorStore.isRenderMode ? 'bg-slate-950 text-amber-400' : 'bg-[#2D3139] text-[#8E9299]'
             }`}
           >
@@ -292,8 +341,8 @@ export const ToolShelf: React.FC = () => {
 
         {/* X-Ray / Transparent Wireframe Mode Toggle (Edition Mode Only) */}
         <button
-          onClick={() => editorStore.toggleXRayMode()}
-          className={`flex items-center space-x-1.5 px-2.5 py-1 rounded text-xs font-bold transition-all cursor-pointer ${
+          onClick={handleToggleXRayMode}
+          className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
             editorStore.xRayMode
               ? 'bg-gradient-to-r from-sky-500 to-blue-600 text-white shadow-md shadow-sky-500/20 border border-sky-400 font-bold'
               : 'text-[#8E9299] hover:text-white hover:bg-[#2D3139]'
@@ -307,7 +356,7 @@ export const ToolShelf: React.FC = () => {
           <BoxSelect className={`w-3.5 h-3.5 ${editorStore.xRayMode ? 'text-white' : 'text-sky-400'}`} />
           <span className="text-[11px] font-bold">X-Ray</span>
           <span
-            className={`text-[9px] px-1 py-0.2 rounded uppercase font-black ${
+            className={`text-[9px] px-1 py-0.2 rounded-full uppercase font-black ${
               editorStore.xRayMode ? 'bg-slate-950 text-sky-400' : 'bg-[#2D3139] text-[#8E9299]'
             }`}
           >
@@ -318,10 +367,10 @@ export const ToolShelf: React.FC = () => {
         <div className="h-4 w-px bg-[#2D3139] mx-1" />
 
         {/* Preview / Code Tab Switcher (Professional Scripting Environment Toggle) */}
-        <div className="flex items-center bg-[#0F1113] p-0.5 rounded border border-[#2D3139] space-x-0.5">
+        <div className="flex items-center bg-[#0F1113] p-0.5 rounded-full border border-[#2D3139] space-x-0.5">
           <button
-            onClick={() => editorStore.setMainTab('preview')}
-            className={`flex items-center space-x-1 px-2.5 py-1 rounded text-xs font-bold transition-all cursor-pointer ${
+            onClick={() => handleSetMainTab('preview')}
+            className={`flex items-center space-x-1 px-2.5 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
               editorStore.activeMainTab === 'preview'
                 ? 'bg-[#2D3139] text-white border border-[#4A90E2] shadow-sm'
                 : 'text-[#8E9299] hover:text-white'
@@ -332,8 +381,8 @@ export const ToolShelf: React.FC = () => {
             <span>Preview</span>
           </button>
           <button
-            onClick={() => editorStore.setMainTab('code')}
-            className={`flex items-center space-x-1 px-2.5 py-1 rounded text-xs font-bold transition-all cursor-pointer ${
+            onClick={() => handleSetMainTab('code')}
+            className={`flex items-center space-x-1 px-2.5 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
               editorStore.activeMainTab === 'code'
                 ? 'bg-[#2D3139] text-white border border-[#4A90E2] shadow-sm'
                 : 'text-[#8E9299] hover:text-white'
@@ -349,23 +398,6 @@ export const ToolShelf: React.FC = () => {
       {/* 1. OBJECT MODE TOOLBAR */}
       {mode === 'object' && (
         <div className="flex items-center space-x-2">
-          {/* Interactive Draw Mode Toggle */}
-          <button
-            onClick={() => {
-              editorStore.isInteractiveDrawingMode = !editorStore.isInteractiveDrawingMode;
-              editorStore.notify();
-            }}
-            className={`flex items-center space-x-1.5 px-2.5 py-1 rounded text-xs font-semibold border transition-all ${
-              editorStore.isInteractiveDrawingMode
-                ? 'bg-[#4A90E2] border-[#4A90E2] text-white shadow-md'
-                : 'bg-[#0F1113] border-[#2D3139] text-[#8E9299] hover:text-white'
-            }`}
-            title="Activer l'outil de dessin interactif de solides 3D dans le Viewport"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-            <span className="text-[11px]">Dessin Interactif</span>
-          </button>
-
           {/* Add Solides Popup Trigger Button (+) */}
           <button
             onClick={() => {
@@ -830,6 +862,263 @@ export const ToolShelf: React.FC = () => {
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           </div>
+        </div>
+      )}
+
+      {/* 6. ANIMATION MODE TOOLBAR */}
+      {mode === 'animation' && (
+        <div className="flex items-center space-x-2 text-xs">
+          <div className="flex items-center bg-[#0F1113] p-1 rounded-full border border-[#2D3139] space-x-1">
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.92 }}
+              onClick={() => editorStore.setAnimationFrame(0)}
+              className="w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-[#2D3139] transition-colors cursor-pointer"
+              title="Début (Frame 0)"
+            >
+              <SkipBack className="w-3.5 h-3.5" />
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.92 }}
+              onClick={() => editorStore.setAnimationFrame(editorStore.animationCurrentFrame - 1)}
+              className="w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-[#2D3139] transition-colors cursor-pointer"
+              title="Image précédente"
+            >
+              <Minimize2 className="w-3.5 h-3.5 rotate-45" />
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.92 }}
+              onClick={() => editorStore.toggleAnimationPlay()}
+              className={`w-8 h-8 rounded-full flex items-center justify-center font-bold transition-all shadow-sm cursor-pointer ${
+                editorStore.isAnimationPlaying
+                  ? 'bg-amber-500 text-slate-950 shadow-amber-500/20'
+                  : 'bg-blue-600 text-white hover:bg-blue-500 shadow-blue-500/20'
+              }`}
+              title={editorStore.isAnimationPlaying ? 'Pause (Espace)' : 'Lecture (Espace)'}
+            >
+              {editorStore.isAnimationPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.92 }}
+              onClick={() => editorStore.setAnimationFrame(editorStore.animationCurrentFrame + 1)}
+              className="w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-[#2D3139] transition-colors cursor-pointer"
+              title="Image suivante"
+            >
+              <Maximize2 className="w-3.5 h-3.5 rotate-45" />
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.92 }}
+              onClick={() => editorStore.setAnimationFrame(editorStore.animationTotalFrames)}
+              className="w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-[#2D3139] transition-colors cursor-pointer"
+              title="Fin"
+            >
+              <SkipForward className="w-3.5 h-3.5" />
+            </motion.button>
+          </div>
+
+          <div className="flex items-center space-x-2 bg-[#0F1113] px-3 py-1 rounded-full border border-[#2D3139] font-mono text-[11px]">
+            <span className="text-slate-400">Frame:</span>
+            <span className="text-blue-400 font-bold w-6 text-right">{editorStore.animationCurrentFrame}</span>
+            <span className="text-slate-600">/</span>
+            <span className="text-slate-400">{editorStore.animationTotalFrames}</span>
+            <input
+              type="range"
+              min="0"
+              max={editorStore.animationTotalFrames}
+              value={editorStore.animationCurrentFrame}
+              onChange={e => editorStore.setAnimationFrame(parseInt(e.target.value))}
+              className="w-24 accent-blue-500 cursor-pointer h-1.5 bg-[#2D3139] rounded-lg"
+            />
+          </div>
+
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => editorStore.addKeyframeForSelected()}
+            disabled={!selObj}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full font-semibold text-xs border transition-all ${
+              selObj
+                ? 'bg-blue-600/20 border-blue-500/40 text-blue-400 hover:bg-blue-600/30 cursor-pointer'
+                : 'bg-[#0F1113] border-[#2D3139] text-slate-600 cursor-not-allowed'
+            }`}
+            title="Ajouter une image clé (Keyframe) sur l'objet sélectionné"
+          >
+            <Key className="w-3.5 h-3.5" />
+            <span>Keyframe</span>
+          </motion.button>
+
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => editorStore.toggleTurntable()}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full font-semibold text-xs border transition-all cursor-pointer ${
+              editorStore.isTurntableActive
+                ? 'bg-amber-500/20 border-amber-400 text-amber-300 shadow-sm'
+                : 'bg-[#0F1113] border-[#2D3139] text-[#8E9299] hover:text-white'
+            }`}
+            title="Rotation 360° continue du plateau de présentation"
+          >
+            <RotateCw className={`w-3.5 h-3.5 ${editorStore.isTurntableActive ? 'animate-spin text-amber-400' : ''}`} />
+            <span>Turntable 360°</span>
+          </motion.button>
+        </div>
+      )}
+
+      {/* 7. SIMULATION MODE TOOLBAR */}
+      {mode === 'simulation' && (
+        <div className="flex items-center space-x-2 text-xs">
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => editorStore.togglePhysics()}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full font-bold text-xs border transition-all cursor-pointer ${
+              editorStore.isPhysicsActive
+                ? 'bg-emerald-500 border-emerald-400 text-slate-950 shadow-md shadow-emerald-500/20'
+                : 'bg-emerald-600/20 border-emerald-500/40 text-emerald-400 hover:bg-emerald-600/30'
+            }`}
+            title={editorStore.isPhysicsActive ? 'Mettre en pause la physique' : 'Lancer la simulation physique'}
+          >
+            {editorStore.isPhysicsActive ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+            <span>{editorStore.isPhysicsActive ? 'Simulation Active' : 'Démarrer Simulation'}</span>
+          </motion.button>
+
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => editorStore.resetPhysics()}
+            className="flex items-center space-x-1.5 px-3 py-1.5 bg-[#0F1113] hover:bg-[#2D3139] border border-[#2D3139] text-slate-300 hover:text-white rounded-full font-medium transition-colors cursor-pointer"
+            title="Réinitialiser les objets à leur position initiale"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+            <span>Réinitialiser</span>
+          </motion.button>
+
+          <div className="h-4 w-px bg-[#2D3139] mx-1" />
+
+          {/* Interaction Mode: Grab Displacement vs Radial Push vs Explode */}
+          <div className="flex items-center bg-[#0F1113] p-0.5 rounded-full border border-[#2D3139] space-x-0.5">
+            <button
+              onClick={() => editorStore.setSimulationInteractionMode('grab')}
+              className={`flex items-center space-x-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                editorStore.simulationInteractionMode === 'grab'
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-400/50'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+              title="Attraper et déplacer l'objet en temps réel avec le cercle"
+            >
+              <Hand className="w-3.5 h-3.5" />
+              <span>Attraper / Déplacer</span>
+            </button>
+            <button
+              onClick={() => editorStore.setSimulationInteractionMode('push')}
+              className={`flex items-center space-x-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                editorStore.simulationInteractionMode === 'push'
+                  ? 'bg-sky-500/20 text-sky-300 border border-sky-400/50'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+              title="Pousser les objets avec la zone d'influence du cercle"
+            >
+              <MoveUpRight className="w-3.5 h-3.5" />
+              <span>Pousser</span>
+            </button>
+            <button
+              onClick={() => editorStore.setSimulationInteractionMode('explode')}
+              className={`flex items-center space-x-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                editorStore.simulationInteractionMode === 'explode'
+                  ? 'bg-rose-500/25 text-rose-300 border border-rose-400/60 shadow-sm shadow-rose-500/20'
+                  : 'text-slate-400 hover:text-rose-300'
+              }`}
+              title="Cliquer sur un solide avec le cercle pour le faire exploser en morceaux physiques"
+            >
+              <Zap className="w-3.5 h-3.5 text-rose-400" />
+              <span>Mode Explosion</span>
+            </button>
+          </div>
+
+          {/* Instant Explode Selected Solid Button */}
+          {editorStore.getSelectedObject() && (
+            <motion.button
+              whileHover={{ scale: 1.04 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => editorStore.explodeSelectedSolid()}
+              className="flex items-center space-x-1.5 px-3 py-1 bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white rounded-full text-xs font-bold shadow-md shadow-rose-600/30 transition-all cursor-pointer"
+              title="Exploser immédiatement le solide sélectionné"
+            >
+              <Flame className="w-3.5 h-3.5 fill-current" />
+              <span>Exploser le Solide</span>
+            </motion.button>
+          )}
+
+          {/* Explosion / Brush Settings */}
+          {editorStore.simulationInteractionMode === 'explode' ? (
+            <>
+              {/* Blast Force */}
+              <div className="flex items-center space-x-1.5 bg-[#0F1113] px-2.5 py-1 rounded-full border border-[#2D3139] text-[11px]">
+                <span className="text-slate-400 font-medium">Puissance Déflagration:</span>
+                <input
+                  type="range"
+                  min="15"
+                  max="120"
+                  step="5"
+                  value={editorStore.simulationExplosionForce}
+                  onChange={e => editorStore.setSimulationExplosionForce(parseFloat(e.target.value))}
+                  className="w-16 accent-rose-500 cursor-pointer h-1.5 bg-[#2D3139] rounded-lg"
+                />
+                <span className="text-rose-400 font-mono font-bold w-6">{editorStore.simulationExplosionForce.toFixed(0)}</span>
+              </div>
+
+              {/* Fragment Count */}
+              <div className="flex items-center space-x-1.5 bg-[#0F1113] px-2.5 py-1 rounded-full border border-[#2D3139] text-[11px]">
+                <span className="text-slate-400 font-medium">Éclats:</span>
+                <input
+                  type="range"
+                  min="6"
+                  max="36"
+                  step="2"
+                  value={editorStore.simulationExplosionChunks}
+                  onChange={e => editorStore.setSimulationExplosionChunks(parseInt(e.target.value))}
+                  className="w-14 accent-amber-500 cursor-pointer h-1.5 bg-[#2D3139] rounded-lg"
+                />
+                <span className="text-amber-400 font-mono font-bold w-5">{editorStore.simulationExplosionChunks}</span>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Brush Circle Radius */}
+              <div className="flex items-center space-x-1.5 bg-[#0F1113] px-2.5 py-1 rounded-full border border-[#2D3139] text-[11px]">
+                <span className="text-slate-400 font-medium">Rayon Cercle:</span>
+                <input
+                  type="range"
+                  min="0.3"
+                  max="3.0"
+                  step="0.1"
+                  value={editorStore.simulationBrushRadius}
+                  onChange={e => editorStore.setSimulationBrushRadius(parseFloat(e.target.value))}
+                  className="w-16 accent-sky-500 cursor-pointer h-1.5 bg-[#2D3139] rounded-lg"
+                />
+                <span className="text-sky-400 font-mono font-bold w-6">{editorStore.simulationBrushRadius.toFixed(1)}m</span>
+              </div>
+
+              {/* Spring Force Strength */}
+              <div className="flex items-center space-x-1.5 bg-[#0F1113] px-2.5 py-1 rounded-full border border-[#2D3139] text-[11px]">
+                <span className="text-slate-400 font-medium">Force Ressort:</span>
+                <input
+                  type="range"
+                  min="10"
+                  max="80"
+                  step="5"
+                  value={editorStore.simulationSpringStrength}
+                  onChange={e => editorStore.setSimulationSpringStrength(parseFloat(e.target.value))}
+                  className="w-16 accent-amber-500 cursor-pointer h-1.5 bg-[#2D3139] rounded-lg"
+                />
+                <span className="text-amber-400 font-mono font-bold w-6">{editorStore.simulationSpringStrength.toFixed(0)}</span>
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

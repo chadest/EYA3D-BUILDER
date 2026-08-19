@@ -78,22 +78,6 @@ export const InteractivePrimitivePopup: React.FC<InteractivePrimitivePopupProps>
     { id: 'pointlight', name: 'Ampoule', icon: <Circle className="w-4 h-4" />, desc: 'Point lumineux omnidirectionnel' },
   ];
 
-  const getStepText = () => {
-    if (!isInteractiveMode) {
-      return 'Mode Direct: Clic pour créer le solide à l\'origine';
-    }
-    switch (drawingStep) {
-      case 'DRAWING_BASE':
-        return 'Étape 1: Maintenez & glissez pour tracer la base...';
-      case 'EXTRUDING_HEIGHT':
-        return 'Étape 2: Déplacez vers le haut pour fixer la hauteur (Clic pour valider)';
-      case 'COMPLETED':
-        return 'Solide créé ! Main levée (Navigation réactivée)';
-      default:
-        return 'Sélectionnez une forme et tracez dans le Viewport.';
-    }
-  };
-
   return (
     <div className="absolute top-3 right-3 z-50 flex flex-col items-end space-y-2 pointer-events-auto select-none">
       {/* Floating Dialog Popup */}
@@ -217,24 +201,6 @@ export const InteractivePrimitivePopup: React.FC<InteractivePrimitivePopupProps>
                 </button>
               );
             })}
-          </div>
-
-          {/* Status Guide & Instructions */}
-          <div className="bg-[#0F1113] p-2 rounded-xl border border-[#2D3139] text-[10px] font-mono flex items-center justify-between text-[#8E9299]">
-            <div className="flex items-center space-x-1.5 text-emerald-400 font-sans leading-tight pr-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
-              <span className="truncate">{getStepText()}</span>
-            </div>
-
-            {drawingStep !== 'IDLE' && (
-              <button
-                onClick={onCancelDrawing}
-                className="p-1 hover:bg-[#2D3139] text-rose-400 rounded transition-colors flex-shrink-0"
-                title="Annuler le dessin (Échap)"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
           </div>
         </div>
     </div>

@@ -4,7 +4,7 @@
  * PolyCraft 3D Studio - Advanced Three.js WebGL Viewport
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, lazy, Suspense } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
@@ -33,7 +33,6 @@ import { CameraPreviewWidget } from '../ui/CameraPreviewWidget';
 import { TransformToolbar } from '../ui/TransformToolbar';
 import { NavigationToolbar } from '../ui/NavigationToolbar';
 import { AIChatButton } from '../ui/AIChatButton';
-import { ScriptEditor } from '../ui/ScriptEditor';
 import { RealisticRenderPipeline } from '../../core/rendering/renderPipeline';
 import { StudioCyclorama } from './StudioCyclorama';
 import { physicsEngine } from '../../core/physics/PhysicsEngine';
@@ -41,6 +40,13 @@ import { threeOptimizationEngine } from '../../core/optimization/threeOptimizati
 import { CadDrawingEngine } from '../../core/drawing/cadDrawingEngine';
 import { SketchEntity, LineSketchEntity, RectSketchEntity, CircleSketchEntity, ArcSketchEntity, SplineSketchEntity, SnapPoint } from '../../types/drawing';
 import { SketchOverlayHUD } from '../drawing/SketchOverlayHUD';
+
+// Heavyweight Monaco editor lazy loading
+const LazyScriptEditor = lazy(() =>
+  import('../ui/ScriptEditor').then(module => ({
+    default: module.ScriptEditor,
+  }))
+);
 
 // 1. Interactive 3D Coordinate Axis Orientation Gizmo (Matching User Screenshot)
 interface ViewOrientationGizmoProps {
@@ -313,6 +319,14 @@ export const Viewport3D: React.FC = () => {
     angleDeg: number;
     radius?: number;
   } | null>(null);
+
+  // Physics Simulation Interactive Circle Cursor & Dragging State
+  const [simulationCursorPos, setSimulationCursorPos] = useState<{ x: number; y: number } | null>(null);
+  const [simulationWorldHit, setSimulationWorldHit] = useState<THREE.Vector3 | null>(null);
+  const isSimulationGrabbingRef = useRef<boolean>(false);
+  const simulationGrabbedObjIdRef = useRef<string | null>(null);
+  const simulationGrabPlaneRef = useRef<THREE.Plane>(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0));
+  const simulationGrabOffsetRef = useRef<THREE.Vector3>(new THREE.Vector3());
 
   // Camera 2D Lock / LookAt Sync with EditorStore
   useEffect(() => {
@@ -1464,6 +1478,21 @@ export const Viewport3D: React.FC = () => {
         physicsEngine.step();
       }
 
+      // Turntable 360° Animation Preview
+      if (editorStore.isTurntableActive && controlsRef.current) {
+        controlsRef.current.autoRotate = true;
+        controlsRef.current.autoRotateSpeed = 2.5 * (editorStore.turntableSpeed || 1.0);
+        controlsRef.current.update();
+      } else if (controlsRef.current && controlsRef.current.autoRotate) {
+        controlsRef.current.autoRotate = false;
+      }
+
+      // Animation Timeline Playback Stepping
+      if (editorStore.isAnimationPlaying) {
+        const nextFrame = (editorStore.animationCurrentFrame + 1) % (editorStore.animationTotalFrames + 1);
+        editorStore.setAnimationFrame(nextFrame);
+      }
+
       // Sync sun position from mesh back to settings if it was moved via gizmo
       const sunObj = editorStore.objects.find(o => o.name === 'Sun Light');
       if (sunObj && sunObj.mesh) {
@@ -1514,15 +1543,19 @@ export const Viewport3D: React.FC = () => {
 
           materials.forEach(m => {
             if (isXRayActive) {
-              m.transparent = true;
-              m.opacity = 0.4;
-              m.depthWrite = false;
-              m.needsUpdate = true;
+              if (!m.transparent || m.opacity !== 0.4 || m.depthWrite !== false) {
+                m.transparent = true;
+                m.opacity = 0.4;
+                m.depthWrite = false;
+                m.needsUpdate = true;
+              }
             } else {
-              m.transparent = false;
-              m.opacity = 1.0;
-              m.depthWrite = true;
-              m.needsUpdate = true;
+              if (m.transparent || m.opacity !== 1.0 || m.depthWrite !== true) {
+                m.transparent = false;
+                m.opacity = 1.0;
+                m.depthWrite = true;
+                m.needsUpdate = true;
+              }
             }
           });
 
@@ -2154,6 +2187,40 @@ export const Viewport3D: React.FC = () => {
 
     const selObj = editorStore.getSelectedObject();
 
+    // 0. Simulation Mode Real-Time Object Displacement with Circle Cursor
+    if (editorStore.mode === 'simulation') {
+      const screenX = e.clientX - rect.left;
+      const screenY = e.clientY - rect.top;
+      setSimulationCursorPos({ x: screenX, y: screenY });
+
+      // Ground plane or grab plane raycast intersection
+      const currentPlane = isSimulationGrabbingRef.current ? simulationGrabPlaneRef.current : new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+      const hitPoint = new THREE.Vector3();
+      
+      if (raycaster.ray.intersectPlane(currentPlane, hitPoint)) {
+        setSimulationWorldHit(hitPoint);
+
+        if (isSimulationGrabbingRef.current && simulationGrabbedObjIdRef.current && editorStore.isPhysicsActive) {
+          // Calculate target position in real-time
+          const targetPos = hitPoint.clone().add(simulationGrabOffsetRef.current);
+          physicsEngine.applySpringForceToObject(
+            simulationGrabbedObjIdRef.current,
+            targetPos,
+            editorStore.simulationSpringStrength,
+            6.0
+          );
+        } else if (editorStore.isPhysicsActive && editorStore.simulationInteractionMode === 'push' && (e.buttons & 1)) {
+          // Radial push impulse under circle
+          physicsEngine.applyRadialPush(hitPoint, editorStore.simulationBrushRadius, 25.0);
+        }
+      }
+
+      if (isSimulationGrabbingRef.current && controlsRef.current) {
+        controlsRef.current.enabled = false;
+      }
+      return;
+    }
+
     // 1. Digital Sculpting Raycast
     if (editorStore.mode === 'sculpt' && selObj && selObj.mesh) {
       if (controlsRef.current) controlsRef.current.enabled = !isSculptingRef.current;
@@ -2679,6 +2746,72 @@ export const Viewport3D: React.FC = () => {
       }
     }
 
+    if (editorStore.mode === 'simulation') {
+      if (!sceneRef.current || !cameraRef.current || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const mouse = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1
+      );
+
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(mouse, cameraRef.current);
+
+      const meshes = editorStore.objects.map(o => o.mesh!).filter(Boolean);
+      const intersects = raycaster.intersectObjects(meshes);
+
+      if (intersects.length > 0) {
+        const hit = intersects[0];
+        const hitObject = editorStore.objects.find(o => o.mesh === hit.object || (hit.object.parent && o.mesh === hit.object.parent));
+        if (hitObject) {
+          editorStore.setSelectedObject(hitObject.id);
+
+          // If in Explode Mode: trigger instant physical fracture and shockwave
+          if (editorStore.simulationInteractionMode === 'explode') {
+            import('../../core/physics/MeshExplosionEngine').then(({ MeshExplosionEngine }) => {
+              MeshExplosionEngine.explodeSolid(hitObject, {
+                blastForce: editorStore.simulationExplosionForce,
+                chunkCount: editorStore.simulationExplosionChunks,
+                epicenter: hit.point
+              });
+            });
+            return;
+          }
+
+          simulationGrabbedObjIdRef.current = hitObject.id;
+          isSimulationGrabbingRef.current = true;
+          editorStore.isPhysicsGrabbing = true;
+          editorStore.notify();
+
+          // Create a plane parallel to the camera passing through the hit point
+          const camDir = new THREE.Vector3();
+          cameraRef.current.getWorldDirection(camDir);
+          simulationGrabPlaneRef.current = new THREE.Plane().setFromNormalAndCoplanarPoint(
+            camDir.negate(),
+            hit.point
+          );
+          
+          if (hitObject.mesh) {
+            simulationGrabOffsetRef.current = hitObject.mesh.position.clone().sub(hit.point);
+          } else {
+            simulationGrabOffsetRef.current.set(0, 0, 0);
+          }
+
+          if (controlsRef.current) {
+            controlsRef.current.enabled = false;
+          }
+        }
+      } else if (editorStore.simulationInteractionMode === 'push') {
+        // If pushing without direct hit, apply impulse directly
+        const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+        const hitPoint = new THREE.Vector3();
+        if (raycaster.ray.intersectPlane(plane, hitPoint)) {
+          physicsEngine.applyRadialPush(hitPoint, editorStore.simulationBrushRadius, 30.0);
+        }
+      }
+      return;
+    }
+
     if (editorStore.mode === 'sculpt') {
       const selObj = editorStore.getSelectedObject();
       if (selObj) {
@@ -2819,6 +2952,14 @@ export const Viewport3D: React.FC = () => {
     lastHitPointRef.current = null;
     if (controlsRef.current) controlsRef.current.enabled = true;
 
+    // Simulation Mode Grab Release
+    if (isSimulationGrabbingRef.current) {
+      isSimulationGrabbingRef.current = false;
+      simulationGrabbedObjIdRef.current = null;
+      editorStore.isPhysicsGrabbing = false;
+      editorStore.notify();
+    }
+
     // Backup sculpt geometry after sculpt stroke finishes
     const selObj = editorStore.getSelectedObject();
     if (editorStore.mode === 'sculpt' && selObj && selObj.mesh) {
@@ -2879,7 +3020,7 @@ export const Viewport3D: React.FC = () => {
       return 'cursor-crosshair';
     }
 
-    if (editorStore.mode === 'sculpt') {
+    if (editorStore.mode === 'sculpt' || editorStore.mode === 'simulation') {
       return 'cursor-none';
     }
 
@@ -2922,7 +3063,18 @@ export const Viewport3D: React.FC = () => {
       {/* Fullscreen Script Editor Overlay */}
       {editorStore.activeMainTab === 'code' && (
         <div className="absolute inset-0 z-50 bg-[#1e1e1e] p-2">
-          <ScriptEditor />
+          <Suspense
+            fallback={
+              <div className="flex h-full w-full items-center justify-center bg-[#1e1e1e] text-slate-400 font-mono text-sm">
+                <div className="flex items-center space-x-2">
+                  <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                  <span>Chargement de l'environnement de script...</span>
+                </div>
+              </div>
+            }
+          >
+            <LazyScriptEditor />
+          </Suspense>
         </div>
       )}
 
@@ -2948,6 +3100,54 @@ export const Viewport3D: React.FC = () => {
           }}
           className="border border-blue-500 bg-blue-500/10 absolute rounded"
         />
+      )}
+
+      {/* Real-time Physics Simulation Circle Reticle / Cursor */}
+      {editorStore.mode === 'simulation' && simulationCursorPos && (
+        <div
+          style={{
+            left: simulationCursorPos.x,
+            top: simulationCursorPos.y,
+            transform: 'translate(-50%, -50%)',
+            width: `${Math.max(24, Math.round(editorStore.simulationBrushRadius * 36))}px`,
+            height: `${Math.max(24, Math.round(editorStore.simulationBrushRadius * 36))}px`,
+            pointerEvents: 'none',
+            zIndex: 45,
+          }}
+          className={`absolute rounded-full border-2 transition-all flex items-center justify-center ${
+            editorStore.isPhysicsGrabbing
+              ? 'border-amber-400 bg-amber-400/20 shadow-lg shadow-amber-500/30 scale-105'
+              : editorStore.simulationInteractionMode === 'explode'
+              ? 'border-rose-500 bg-rose-500/20 shadow-lg shadow-rose-500/30 animate-pulse'
+              : editorStore.simulationInteractionMode === 'push'
+              ? 'border-sky-400 bg-sky-400/15 shadow-md shadow-sky-500/20'
+              : 'border-emerald-400/80 bg-emerald-400/10 shadow-sm'
+          }`}
+        >
+          {/* Inner Target Center Dot / Icon */}
+          <div
+            className={`w-2 h-2 rounded-full ${
+              editorStore.isPhysicsGrabbing
+                ? 'bg-amber-400 animate-ping'
+                : editorStore.simulationInteractionMode === 'explode'
+                ? 'bg-rose-500 scale-125'
+                : editorStore.simulationInteractionMode === 'push'
+                ? 'bg-sky-400'
+                : 'bg-emerald-400'
+            }`}
+          />
+          {/* Action Badge */}
+          {editorStore.isPhysicsGrabbing && (
+            <div className="absolute -bottom-6 px-2 py-0.5 bg-amber-500 text-slate-950 font-bold text-[10px] rounded-full uppercase tracking-wider whitespace-nowrap shadow-md">
+              Déplacement Physique
+            </div>
+          )}
+          {!editorStore.isPhysicsGrabbing && editorStore.simulationInteractionMode === 'explode' && (
+            <div className="absolute -bottom-6 px-2 py-0.5 bg-rose-600 text-white font-bold text-[10px] rounded-full uppercase tracking-wider whitespace-nowrap shadow-md flex items-center space-x-1">
+              <span>💥 Clic pour Exploser</span>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

@@ -4,17 +4,28 @@
  * PolyCraft 3D Studio - Main Application Component (SelfCAD Layout)
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { HeaderBar } from './components/ui/HeaderBar';
 import { ToolShelf } from './components/ui/ToolShelf';
 import { Viewport3D } from './components/viewport/Viewport3D';
 import { PropertyPanel } from './components/ui/PropertyPanel';
 import { StatusBar } from './components/ui/StatusBar';
-import { InteractivePrimitivePopup } from './components/ui/InteractivePrimitivePopup';
-import { SettingsModal } from './components/ui/settings/SettingsModal';
 import { AntiFreezeRescueBanner } from './components/ui/AntiFreezeRescueBanner';
 import { editorStore } from './store/EditorStore';
 import { addDirectPrimitive } from './core/primitives/interactivePrimitives';
+
+// Lazy-loaded secondary & heavyweight UI modules to optimize initial bundle and boot performance
+const LazyInteractivePrimitivePopup = lazy(() =>
+  import('./components/ui/InteractivePrimitivePopup').then(module => ({
+    default: module.InteractivePrimitivePopup,
+  }))
+);
+
+const LazySettingsModal = lazy(() =>
+  import('./components/ui/settings/SettingsModal').then(module => ({
+    default: module.SettingsModal,
+  }))
+);
 
 export default function App() {
   const [, setTick] = useState(0);
@@ -69,46 +80,54 @@ export default function App() {
         <PropertyPanel />
 
         {/* Floating Primitives Popup (Opens ON TOP of Properties panel) */}
-        <InteractivePrimitivePopup
-          isOpen={editorStore.isPrimitivePopupOpen}
-          onClose={() => {
-            editorStore.isPrimitivePopupOpen = false;
-            editorStore.notify();
-          }}
-          activeType={editorStore.drawingPrimitiveType}
-          drawingStep={editorStore.drawingStep}
-          snapEnabled={editorStore.drawingSnapEnabled}
-          snapStep={editorStore.drawingSnapStep}
-          isInteractiveMode={editorStore.isInteractiveDrawingMode}
-          onToggleInteractiveMode={active => {
-            editorStore.isInteractiveDrawingMode = active;
-            editorStore.notify();
-          }}
-          onSelectType={type => {
-            editorStore.drawingPrimitiveType = type;
-            editorStore.isInteractiveDrawingMode = true;
-            editorStore.notify();
-          }}
-          onAddDirectPrimitive={addDirectPrimitive}
-          onToggleSnap={() => {
-            editorStore.drawingSnapEnabled = !editorStore.drawingSnapEnabled;
-            editorStore.notify();
-          }}
-          onChangeSnapStep={step => {
-            editorStore.drawingSnapStep = step;
-            editorStore.notify();
-          }}
-          onCancelDrawing={() => {
-            editorStore.cancelInteractiveDrawing();
-          }}
-        />
+        {editorStore.isPrimitivePopupOpen && (
+          <Suspense fallback={null}>
+            <LazyInteractivePrimitivePopup
+              isOpen={editorStore.isPrimitivePopupOpen}
+              onClose={() => {
+                editorStore.isPrimitivePopupOpen = false;
+                editorStore.notify();
+              }}
+              activeType={editorStore.drawingPrimitiveType}
+              drawingStep={editorStore.drawingStep}
+              snapEnabled={editorStore.drawingSnapEnabled}
+              snapStep={editorStore.drawingSnapStep}
+              isInteractiveMode={editorStore.isInteractiveDrawingMode}
+              onToggleInteractiveMode={active => {
+                editorStore.isInteractiveDrawingMode = active;
+                editorStore.notify();
+              }}
+              onSelectType={type => {
+                editorStore.drawingPrimitiveType = type;
+                editorStore.isInteractiveDrawingMode = true;
+                editorStore.notify();
+              }}
+              onAddDirectPrimitive={addDirectPrimitive}
+              onToggleSnap={() => {
+                editorStore.drawingSnapEnabled = !editorStore.drawingSnapEnabled;
+                editorStore.notify();
+              }}
+              onChangeSnapStep={step => {
+                editorStore.drawingSnapStep = step;
+                editorStore.notify();
+              }}
+              onCancelDrawing={() => {
+                editorStore.cancelInteractiveDrawing();
+              }}
+            />
+          </Suspense>
+        )}
 
         {/* Global Settings & Optimization Modal */}
-        <SettingsModal
-          isOpen={editorStore.isSettingsModalOpen}
-          onClose={() => editorStore.closeSettings()}
-          initialTab={editorStore.settingsInitialTab}
-        />
+        {editorStore.isSettingsModalOpen && (
+          <Suspense fallback={null}>
+            <LazySettingsModal
+              isOpen={editorStore.isSettingsModalOpen}
+              onClose={() => editorStore.closeSettings()}
+              initialTab={editorStore.settingsInitialTab}
+            />
+          </Suspense>
+        )}
       </div>
 
       {/* Bottom Status & Info Bar */}

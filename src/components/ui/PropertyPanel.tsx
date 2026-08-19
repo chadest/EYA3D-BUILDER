@@ -4,7 +4,7 @@
  * PolyCraft 3D Studio - SelfCAD Style Right Inspector Panel
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useTransition } from 'react';
 import {
   Sliders,
   Plus,
@@ -45,6 +45,19 @@ export const PropertyPanel: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [backdropDropdownOpen, setBackdropDropdownOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'scene' | 'material' | 'modifiers'>('scene');
+  const [isPending, startTransition] = useTransition();
+
+  const handleTabChange = (tab: 'scene' | 'material' | 'modifiers') => {
+    startTransition(() => {
+      setActiveTab(tab);
+    });
+  };
+
+  const handleSelectObject = (id: string) => {
+    startTransition(() => {
+      editorStore.setSelectedObject(id);
+    });
+  };
 
   useEffect(() => {
     return editorStore.subscribe(() => setTick(t => t + 1));
@@ -494,7 +507,7 @@ export const PropertyPanel: React.FC = () => {
       </div>
       <div className="flex items-center border-b border-[#2D3139] bg-[#1C1E22] text-xs font-semibold">
         <button
-          onClick={() => setActiveTab('scene')}
+          onClick={() => handleTabChange('scene')}
           className={`flex-1 py-2 text-center border-b-2 transition-colors ${
             activeTab === 'scene'
               ? 'border-[#4A90E2] text-white font-bold bg-[#16181C]'
@@ -504,7 +517,7 @@ export const PropertyPanel: React.FC = () => {
           Objects ({objects.length})
         </button>
         <button
-          onClick={() => setActiveTab('material')}
+          onClick={() => handleTabChange('material')}
           className={`flex-1 py-2 text-center border-b-2 transition-colors ${
             activeTab === 'material'
               ? 'border-[#4A90E2] text-white font-bold bg-[#16181C]'
@@ -514,7 +527,7 @@ export const PropertyPanel: React.FC = () => {
           Material
         </button>
         <button
-          onClick={() => setActiveTab('modifiers')}
+          onClick={() => handleTabChange('modifiers')}
           className={`flex-1 py-2 text-center border-b-2 transition-colors ${
             activeTab === 'modifiers'
               ? 'border-[#4A90E2] text-white font-bold bg-[#16181C]'
@@ -554,7 +567,7 @@ export const PropertyPanel: React.FC = () => {
                 return (
                   <div
                     key={obj.id}
-                    onClick={() => editorStore.setSelectedObject(obj.id)}
+                    onClick={() => handleSelectObject(obj.id)}
                     className={`flex items-center justify-between p-2 rounded border text-xs cursor-pointer transition-all ${
                       isSelected
                         ? 'bg-[#2D3139] border-[#4A90E2] text-white font-semibold shadow-sm'

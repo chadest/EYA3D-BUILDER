@@ -54,6 +54,7 @@ import {
   RotateCcw,
   Key,
   Flame,
+  MousePointer,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import * as THREE from 'three';
@@ -999,8 +1000,20 @@ export const ToolShelf: React.FC = () => {
 
           <div className="h-4 w-px bg-[#2D3139] mx-1" />
 
-          {/* Interaction Mode: Grab Displacement vs Radial Push vs Explode */}
+          {/* Interaction Mode: Standard vs Grab Circle vs Radial Push vs Explode */}
           <div className="flex items-center bg-[#0F1113] p-0.5 rounded-full border border-[#2D3139] space-x-0.5">
+            <button
+              onClick={() => editorStore.setSimulationInteractionMode('none')}
+              className={`flex items-center space-x-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                editorStore.simulationInteractionMode === 'none'
+                  ? 'bg-slate-700 text-white border border-slate-500/50 shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+              title="Curseur standard (navigation caméra et sélection)"
+            >
+              <MousePointer className="w-3.5 h-3.5" />
+              <span>Curseur Standard</span>
+            </button>
             <button
               onClick={() => editorStore.setSimulationInteractionMode('grab')}
               className={`flex items-center space-x-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
@@ -1008,10 +1021,10 @@ export const ToolShelf: React.FC = () => {
                   ? 'bg-amber-500/20 text-amber-300 border border-amber-400/50'
                   : 'text-slate-400 hover:text-white'
               }`}
-              title="Attraper et déplacer l'objet en temps réel avec le cercle"
+              title="Activer le cercle interactif pour attraper et déplacer les objets en temps réel"
             >
               <Hand className="w-3.5 h-3.5" />
-              <span>Attraper / Déplacer</span>
+              <span>Cercle Déplacer</span>
             </button>
             <button
               onClick={() => editorStore.setSimulationInteractionMode('push')}
@@ -1023,7 +1036,7 @@ export const ToolShelf: React.FC = () => {
               title="Pousser les objets avec la zone d'influence du cercle"
             >
               <MoveUpRight className="w-3.5 h-3.5" />
-              <span>Pousser</span>
+              <span>Cercle Pousser</span>
             </button>
             <button
               onClick={() => editorStore.setSimulationInteractionMode('explode')}
@@ -1054,11 +1067,11 @@ export const ToolShelf: React.FC = () => {
           )}
 
           {/* Explosion / Brush Settings */}
-          {editorStore.simulationInteractionMode === 'explode' ? (
+          {editorStore.simulationInteractionMode === 'explode' && (
             <>
               {/* Blast Force */}
               <div className="flex items-center space-x-1.5 bg-[#0F1113] px-2.5 py-1 rounded-full border border-[#2D3139] text-[11px]">
-                <span className="text-slate-400 font-medium">Puissance Déflagration:</span>
+                <span className="text-slate-400 font-medium">Puissance:</span>
                 <input
                   type="range"
                   min="15"
@@ -1086,7 +1099,9 @@ export const ToolShelf: React.FC = () => {
                 <span className="text-amber-400 font-mono font-bold w-5">{editorStore.simulationExplosionChunks}</span>
               </div>
             </>
-          ) : (
+          )}
+
+          {(editorStore.simulationInteractionMode === 'grab' || editorStore.simulationInteractionMode === 'push') && (
             <>
               {/* Brush Circle Radius */}
               <div className="flex items-center space-x-1.5 bg-[#0F1113] px-2.5 py-1 rounded-full border border-[#2D3139] text-[11px]">
@@ -1104,19 +1119,21 @@ export const ToolShelf: React.FC = () => {
               </div>
 
               {/* Spring Force Strength */}
-              <div className="flex items-center space-x-1.5 bg-[#0F1113] px-2.5 py-1 rounded-full border border-[#2D3139] text-[11px]">
-                <span className="text-slate-400 font-medium">Force Ressort:</span>
-                <input
-                  type="range"
-                  min="10"
-                  max="80"
-                  step="5"
-                  value={editorStore.simulationSpringStrength}
-                  onChange={e => editorStore.setSimulationSpringStrength(parseFloat(e.target.value))}
-                  className="w-16 accent-amber-500 cursor-pointer h-1.5 bg-[#2D3139] rounded-lg"
-                />
-                <span className="text-amber-400 font-mono font-bold w-6">{editorStore.simulationSpringStrength.toFixed(0)}</span>
-              </div>
+              {editorStore.simulationInteractionMode === 'grab' && (
+                <div className="flex items-center space-x-1.5 bg-[#0F1113] px-2.5 py-1 rounded-full border border-[#2D3139] text-[11px]">
+                  <span className="text-slate-400 font-medium">Force Ressort:</span>
+                  <input
+                    type="range"
+                    min="10"
+                    max="80"
+                    step="5"
+                    value={editorStore.simulationSpringStrength}
+                    onChange={e => editorStore.setSimulationSpringStrength(parseFloat(e.target.value))}
+                    className="w-16 accent-amber-500 cursor-pointer h-1.5 bg-[#2D3139] rounded-lg"
+                  />
+                  <span className="text-amber-400 font-mono font-bold w-6">{editorStore.simulationSpringStrength.toFixed(0)}</span>
+                </div>
+              )}
             </>
           )}
         </div>

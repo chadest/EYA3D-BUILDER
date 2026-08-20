@@ -2189,36 +2189,42 @@ export const Viewport3D: React.FC = () => {
 
     // 0. Simulation Mode Real-Time Object Displacement with Circle Cursor
     if (editorStore.mode === 'simulation') {
-      const screenX = e.clientX - rect.left;
-      const screenY = e.clientY - rect.top;
-      setSimulationCursorPos({ x: screenX, y: screenY });
+      if (editorStore.simulationInteractionMode !== 'none') {
+        const screenX = e.clientX - rect.left;
+        const screenY = e.clientY - rect.top;
+        setSimulationCursorPos({ x: screenX, y: screenY });
 
-      // Ground plane or grab plane raycast intersection
-      const currentPlane = isSimulationGrabbingRef.current ? simulationGrabPlaneRef.current : new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-      const hitPoint = new THREE.Vector3();
-      
-      if (raycaster.ray.intersectPlane(currentPlane, hitPoint)) {
-        setSimulationWorldHit(hitPoint);
+        // Ground plane or grab plane raycast intersection
+        const currentPlane = isSimulationGrabbingRef.current ? simulationGrabPlaneRef.current : new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+        const hitPoint = new THREE.Vector3();
+        
+        if (raycaster.ray.intersectPlane(currentPlane, hitPoint)) {
+          setSimulationWorldHit(hitPoint);
 
-        if (isSimulationGrabbingRef.current && simulationGrabbedObjIdRef.current && editorStore.isPhysicsActive) {
-          // Calculate target position in real-time
-          const targetPos = hitPoint.clone().add(simulationGrabOffsetRef.current);
-          physicsEngine.applySpringForceToObject(
-            simulationGrabbedObjIdRef.current,
-            targetPos,
-            editorStore.simulationSpringStrength,
-            6.0
-          );
-        } else if (editorStore.isPhysicsActive && editorStore.simulationInteractionMode === 'push' && (e.buttons & 1)) {
-          // Radial push impulse under circle
-          physicsEngine.applyRadialPush(hitPoint, editorStore.simulationBrushRadius, 25.0);
+          if (isSimulationGrabbingRef.current && simulationGrabbedObjIdRef.current && editorStore.isPhysicsActive) {
+            // Calculate target position in real-time
+            const targetPos = hitPoint.clone().add(simulationGrabOffsetRef.current);
+            physicsEngine.applySpringForceToObject(
+              simulationGrabbedObjIdRef.current,
+              targetPos,
+              editorStore.simulationSpringStrength,
+              6.0
+            );
+          } else if (editorStore.isPhysicsActive && editorStore.simulationInteractionMode === 'push' && (e.buttons & 1)) {
+            // Radial push impulse under circle
+            physicsEngine.applyRadialPush(hitPoint, editorStore.simulationBrushRadius, 25.0);
+          }
+        }
+
+        if (isSimulationGrabbingRef.current && controlsRef.current) {
+          controlsRef.current.enabled = false;
+        }
+        return;
+      } else {
+        if (simulationCursorPos) {
+          setSimulationCursorPos(null);
         }
       }
-
-      if (isSimulationGrabbingRef.current && controlsRef.current) {
-        controlsRef.current.enabled = false;
-      }
-      return;
     }
 
     // 1. Digital Sculpting Raycast
@@ -2766,6 +2772,11 @@ export const Viewport3D: React.FC = () => {
         if (hitObject) {
           editorStore.setSelectedObject(hitObject.id);
 
+          // If in Standard/None mode, just select the object and allow camera orbit/pan
+          if (editorStore.simulationInteractionMode === 'none') {
+            return;
+          }
+
           // If in Explode Mode: trigger instant physical fracture and shockwave
           if (editorStore.simulationInteractionMode === 'explode') {
             import('../../core/physics/MeshExplosionEngine').then(({ MeshExplosionEngine }) => {
@@ -2801,12 +2812,16 @@ export const Viewport3D: React.FC = () => {
             controlsRef.current.enabled = false;
           }
         }
-      } else if (editorStore.simulationInteractionMode === 'push') {
-        // If pushing without direct hit, apply impulse directly
-        const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-        const hitPoint = new THREE.Vector3();
-        if (raycaster.ray.intersectPlane(plane, hitPoint)) {
-          physicsEngine.applyRadialPush(hitPoint, editorStore.simulationBrushRadius, 30.0);
+      } else {
+        if (editorStore.simulationInteractionMode === 'push') {
+          // If pushing without direct hit, apply impulse directly
+          const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+          const hitPoint = new THREE.Vector3();
+          if (raycaster.ray.intersectPlane(plane, hitPoint)) {
+            physicsEngine.applyRadialPush(hitPoint, editorStore.simulationBrushRadius, 30.0);
+          }
+        } else if (editorStore.simulationInteractionMode === 'none') {
+          editorStore.setSelectedObject(null);
         }
       }
       return;
@@ -3020,7 +3035,7 @@ export const Viewport3D: React.FC = () => {
       return 'cursor-crosshair';
     }
 
-    if (editorStore.mode === 'sculpt' || editorStore.mode === 'simulation') {
+    if (editorStore.mode === 'sculpt' || (editorStore.mode === 'simulation' && editorStore.simulationInteractionMode !== 'none')) {
       return 'cursor-none';
     }
 
@@ -3103,7 +3118,7 @@ export const Viewport3D: React.FC = () => {
       )}
 
       {/* Real-time Physics Simulation Circle Reticle / Cursor */}
-      {editorStore.mode === 'simulation' && simulationCursorPos && (
+      {editorStore.mode === 'simulation' && editorStore.simulationInteractionMode !== 'none' && simulationCursorPos && (
         <div
           style={{
             left: simulationCursorPos.x,

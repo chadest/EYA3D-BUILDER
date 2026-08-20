@@ -330,14 +330,14 @@ class EditorStore {
   // Physics Settings & Interactive Simulation
   public isPhysicsActive: boolean = false;
   public physicsInitialTransforms: Record<string, { position: THREE.Vector3, rotation: THREE.Euler }> = {};
-  public simulationInteractionMode: 'grab' | 'push' | 'explode' = 'grab';
+  public simulationInteractionMode: 'none' | 'grab' | 'push' | 'explode' = 'none';
   public simulationBrushRadius: number = 1.0;
   public simulationSpringStrength: number = 30.0;
   public simulationExplosionForce: number = 40.0;
   public simulationExplosionChunks: number = 16;
   public isPhysicsGrabbing: boolean = false;
 
-  public setSimulationInteractionMode(mode: 'grab' | 'push' | 'explode'): void {
+  public setSimulationInteractionMode(mode: 'none' | 'grab' | 'push' | 'explode'): void {
     this.simulationInteractionMode = mode;
     this.notify();
   }

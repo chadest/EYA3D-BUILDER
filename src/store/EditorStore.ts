@@ -111,6 +111,18 @@ class EditorStore {
   public isDrawingLocked2D: boolean = false;
   public onForce2DCameraLookAt: (() => void) | null = null;
   public onUnlock3DCamera: (() => void) | null = null;
+  public notificationToast: { message: string; type?: 'info' | 'success' | 'warn' } | null = null;
+
+  public showNotification(message: string, type: 'info' | 'success' | 'warn' = 'info'): void {
+    this.notificationToast = { message, type };
+    this.notify();
+    setTimeout(() => {
+      if (this.notificationToast?.message === message) {
+        this.notificationToast = null;
+        this.notify();
+      }
+    }, 4500);
+  }
 
   // CSG Selections
   public csgPrimaryId: string | null = null;
@@ -793,10 +805,20 @@ class EditorStore {
     this.notify();
   }
 
+  public toggle2D3DMode(): void {
+    if (this.mode === 'curve') {
+      this.setMode('object');
+      this.showNotification('Mode 3D Activé : Vue libre & rotation déverrouillée', 'info');
+    } else {
+      this.setMode('curve');
+      this.showNotification('Mode Dessin 2D Activé : Axe XY verrouillé sans basculement 3D', 'info');
+    }
+  }
+
   public extrudeSketchTo3D(height: number = 1.0): SceneObject | null {
     this.recomputeSketchProfiles();
     if (this.sketchProfiles.length === 0) {
-      alert('Aucun profil fermé détecté. Dessinez une boucle fermée (ex: rectangle, cercle, ou polyligne fermée) pour extruder.');
+      this.showNotification('Aucun profil fermé détecté. Dessinez une boucle fermée (ex: rectangle, cercle, Bézier fermé) pour extruder.', 'warn');
       return null;
     }
 
@@ -813,13 +835,18 @@ class EditorStore {
     mesh.position.set(0, 0, 0);
 
     const newObj = this.addObject(`Extrusion_${Date.now().toString().slice(-4)}`, mesh);
+    this.selectedObjectId = newObj.id;
+
+    // Basculer automatiquement en mode 3D pour afficher le résultat
+    this.setMode('object');
+    this.showNotification(`✨ Profil 2D extrudé avec succès (${height}m) ! Basculé en vue 3D pour inspection.`, 'success');
     return newObj;
   }
 
   public latheSketchTo3D(segments: number = 32): SceneObject | null {
     this.recomputeSketchProfiles();
     if (this.sketchProfiles.length === 0) {
-      // If no closed profile, we can also lathe open lines
+      // If no closed profile, we can also lathe open lines & curves
       const pts: THREE.Vector3[] = [];
       this.sketchEntities.forEach(ent => {
         if (ent.type === 'LINE') {
@@ -827,11 +854,14 @@ class EditorStore {
           pts.push(new THREE.Vector3(ent.end.x, ent.end.y, 0));
         } else if (ent.type === 'SPLINE') {
           ent.points.forEach(p => pts.push(new THREE.Vector3(p.x, p.y, 0)));
+        } else if (ent.type === 'BEZIER') {
+          const sampled = CadDrawingEngine.sampleBezierEntity(ent, 16);
+          sampled.forEach(p => pts.push(new THREE.Vector3(p.x, p.y, 0)));
         }
       });
 
       if (pts.length < 2) {
-        alert('Veuillez dessiner au moins une ligne ou une courbe pour créer une révolution 360°.');
+        this.showNotification('Veuillez dessiner au moins une ligne, courbe Bézier ou spline pour créer une révolution 360°. ', 'warn');
         return null;
       }
 
@@ -846,6 +876,9 @@ class EditorStore {
       const mat = new THREE.MeshStandardMaterial({ color: 0x4a90e2, roughness: 0.3 });
       const mesh = new THREE.Mesh(geom, mat);
       const newObj = this.addObject(`Révolution_Lathe_${Date.now().toString().slice(-4)}`, mesh);
+      this.selectedObjectId = newObj.id;
+      this.setMode('object');
+      this.showNotification('✨ Révolution 360° créée ! Basculé en vue 3D.', 'success');
       return newObj;
     }
 
@@ -854,6 +887,9 @@ class EditorStore {
     const mat = new THREE.MeshStandardMaterial({ color: 0x4a90e2, roughness: 0.3 });
     const mesh = new THREE.Mesh(geom, mat);
     const newObj = this.addObject(`Révolution_${Date.now().toString().slice(-4)}`, mesh);
+    this.selectedObjectId = newObj.id;
+    this.setMode('object');
+    this.showNotification('✨ Révolution 360° créée ! Basculé en vue 3D.', 'success');
     return newObj;
   }
 

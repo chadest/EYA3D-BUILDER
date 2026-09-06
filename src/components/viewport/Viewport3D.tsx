@@ -38,7 +38,17 @@ import { StudioCyclorama } from './StudioCyclorama';
 import { physicsEngine } from '../../core/physics/PhysicsEngine';
 import { threeOptimizationEngine } from '../../core/optimization/threeOptimizationEngine';
 import { CadDrawingEngine } from '../../core/drawing/cadDrawingEngine';
-import { SketchEntity, LineSketchEntity, RectSketchEntity, CircleSketchEntity, ArcSketchEntity, SplineSketchEntity, SnapPoint } from '../../types/drawing';
+import {
+  SketchEntity,
+  LineSketchEntity,
+  RectSketchEntity,
+  CircleSketchEntity,
+  ArcSketchEntity,
+  SplineSketchEntity,
+  BezierSketchEntity,
+  BezierControlPoint,
+  SnapPoint,
+} from '../../types/drawing';
 import { SketchOverlayHUD } from '../drawing/SketchOverlayHUD';
 import { modelIOEngine } from '../../core/io/ModelIOEngine';
 import { MeasurementPanel } from '../ui/MeasurementPanel';
@@ -418,6 +428,8 @@ export const Viewport3D: React.FC = () => {
   // CAD 2D Sketch References & HUD State
   const sketchGroupRef = useRef<THREE.Group>(new THREE.Group());
   const activeDrawPointsRef = useRef<THREE.Vector2[]>([]);
+  const activeBezierPointsRef = useRef<BezierControlPoint[]>([]);
+  const isDraggingBezierHandleRef = useRef<boolean>(false);
   const filletFirstLineIdRef = useRef<string | null>(null);
   const [cursorScreenPos, setCursorScreenPos] = useState<{ x: number; y: number } | null>(null);
   const [cursorWorldPos, setCursorWorldPos] = useState<{ x: number; y: number } | null>(null);
@@ -450,8 +462,12 @@ export const Viewport3D: React.FC = () => {
     };
 
     editorStore.onUnlock3DCamera = () => {
-      if (!controlsRef.current) return;
+      if (!controlsRef.current || !cameraRef.current) return;
       controlsRef.current.enableRotate = true;
+      if (Math.abs(cameraRef.current.position.x) < 0.1 && Math.abs(cameraRef.current.position.y) < 0.1) {
+        cameraRef.current.position.set(4, 3, 6);
+        controlsRef.current.target.set(0, 0, 0);
+      }
       controlsRef.current.update();
     };
 
@@ -654,17 +670,29 @@ export const Viewport3D: React.FC = () => {
       if (e.key === 'Escape') {
         handleCancelDrawing();
         activeDrawPointsRef.current = [];
+        activeBezierPointsRef.current = [];
+        isDraggingBezierHandleRef.current = false;
         setRubberBandInfo(null);
         filletFirstLineIdRef.current = null;
       }
-      if (e.key === 'Enter' && editorStore.mode === 'curve' && activeDrawPointsRef.current.length >= 2) {
-        if (editorStore.activeDrawTool === 'SPLINE') {
+      if (e.key === 'Enter' && editorStore.mode === 'curve') {
+        if (editorStore.activeDrawTool === 'SPLINE' && activeDrawPointsRef.current.length >= 2) {
           editorStore.addSketchEntity({
             id: `spline_${Date.now()}`,
             type: 'SPLINE',
             points: [...activeDrawPointsRef.current],
           });
           activeDrawPointsRef.current = [];
+          setRubberBandInfo(null);
+        } else if (editorStore.activeDrawTool === 'BEZIER' && activeBezierPointsRef.current.length >= 2) {
+          editorStore.addSketchEntity({
+            id: `bezier_${Date.now()}`,
+            type: 'BEZIER',
+            points: [...activeBezierPointsRef.current],
+            closed: false,
+          });
+          activeBezierPointsRef.current = [];
+          isDraggingBezierHandleRef.current = false;
           setRubberBandInfo(null);
         }
       }
@@ -1606,6 +1634,22 @@ export const Viewport3D: React.FC = () => {
         controlsRef.current.autoRotate = false;
       }
 
+      // Strict 2D Single-Axis Orthogonal Camera Lock for CAD 2D Sketch Mode
+      if (editorStore.mode === 'curve') {
+        if (controlsRef.current && controlsRef.current.enableRotate) {
+          controlsRef.current.enableRotate = false;
+        }
+        if (cameraRef.current && controlsRef.current) {
+          cameraRef.current.up.set(0, 1, 0);
+          cameraRef.current.position.x = controlsRef.current.target.x;
+          cameraRef.current.position.y = controlsRef.current.target.y;
+          if (cameraRef.current.position.z <= 0.1) {
+            cameraRef.current.position.z = 10;
+          }
+          cameraRef.current.lookAt(controlsRef.current.target.x, controlsRef.current.target.y, 0);
+        }
+      }
+
       // Animation Timeline Playback Stepping
       if (editorStore.isAnimationPlaying) {
         const nextFrame = (editorStore.animationCurrentFrame + 1) % (editorStore.animationTotalFrames + 1);
@@ -1913,12 +1957,159 @@ export const Viewport3D: React.FC = () => {
               const line = new THREE.Line(geom, mat);
               sketchGroupRef.current.add(line);
             }
+          } else if (ent.type === 'BEZIER') {
+            const sampled = CadDrawingEngine.sampleBezierEntity(ent, 32);
+            if (sampled.length >= 2) {
+              const geom = new THREE.BufferGeometry().setFromPoints(
+                sampled.map(p => new THREE.Vector3(p.x, p.y, 0.01))
+              );
+              const line = new THREE.Line(geom, mat);
+              sketchGroupRef.current.add(line);
+            }
+
+            // Draw anchor and control handles if hovered, selected, or active tool is BEZIER
+            if (isSelected || isHovered || editorStore.activeDrawTool === 'BEZIER') {
+              ent.points.forEach(pt => {
+                const anchorMesh = new THREE.Mesh(
+                  new THREE.BoxGeometry(0.06, 0.06, 0.001),
+                  new THREE.MeshBasicMaterial({ color: isSelected ? 0x60a5fa : 0x38bdf8 })
+                );
+                anchorMesh.position.set(pt.anchor.x, pt.anchor.y, 0.02);
+                sketchGroupRef.current.add(anchorMesh);
+
+                if (pt.handleOut && pt.handleOut.distanceTo(pt.anchor) > 0.02) {
+                  const hGeom = new THREE.BufferGeometry().setFromPoints([
+                    new THREE.Vector3(pt.anchor.x, pt.anchor.y, 0.02),
+                    new THREE.Vector3(pt.handleOut.x, pt.handleOut.y, 0.02),
+                  ]);
+                  const hLine = new THREE.Line(
+                    hGeom,
+                    new THREE.LineBasicMaterial({ color: 0xf59e0b, linewidth: 1 })
+                  );
+                  sketchGroupRef.current.add(hLine);
+
+                  const hDot = new THREE.Mesh(
+                    new THREE.CircleGeometry(0.025, 8),
+                    new THREE.MeshBasicMaterial({ color: 0xf59e0b })
+                  );
+                  hDot.position.set(pt.handleOut.x, pt.handleOut.y, 0.025);
+                  sketchGroupRef.current.add(hDot);
+                }
+
+                if (pt.handleIn && pt.handleIn.distanceTo(pt.anchor) > 0.02) {
+                  const hGeom = new THREE.BufferGeometry().setFromPoints([
+                    new THREE.Vector3(pt.anchor.x, pt.anchor.y, 0.02),
+                    new THREE.Vector3(pt.handleIn.x, pt.handleIn.y, 0.02),
+                  ]);
+                  const hLine = new THREE.Line(
+                    hGeom,
+                    new THREE.LineBasicMaterial({ color: 0xf59e0b, linewidth: 1 })
+                  );
+                  sketchGroupRef.current.add(hLine);
+
+                  const hDot = new THREE.Mesh(
+                    new THREE.CircleGeometry(0.025, 8),
+                    new THREE.MeshBasicMaterial({ color: 0xf59e0b })
+                  );
+                  hDot.position.set(pt.handleIn.x, pt.handleIn.y, 0.025);
+                  sketchGroupRef.current.add(hDot);
+                }
+              });
+            }
           }
         }
 
         // 3. Active rubber-band / drawing in progress preview
         const pts = activeDrawPointsRef.current;
         const tool = editorStore.activeDrawTool;
+
+        if (tool === 'BEZIER' && activeBezierPointsRef.current.length > 0 && cursorWorldPos) {
+          const curV = new THREE.Vector2(cursorWorldPos.x, cursorWorldPos.y);
+          const bPts = activeBezierPointsRef.current;
+
+          // Render already confirmed bezier spans
+          if (bPts.length >= 2) {
+            const previewEnt: BezierSketchEntity = {
+              id: 'temp_bezier',
+              type: 'BEZIER',
+              points: bPts,
+              closed: false,
+            };
+            const sampled = CadDrawingEngine.sampleBezierEntity(previewEnt, 24);
+            if (sampled.length >= 2) {
+              const geom = new THREE.BufferGeometry().setFromPoints(
+                sampled.map(p => new THREE.Vector3(p.x, p.y, 0.02))
+              );
+              sketchGroupRef.current.add(
+                new THREE.Line(geom, new THREE.LineBasicMaterial({ color: 0x10b981, linewidth: 2 }))
+              );
+            }
+          }
+
+          // Rubber-band from last anchor to current cursor
+          if (!isDraggingBezierHandleRef.current) {
+            const lastAnchor = bPts[bPts.length - 1];
+            const p0 = lastAnchor.anchor;
+            const h0 = lastAnchor.handleOut || p0;
+            const p1 = curV;
+            const h1 = curV;
+
+            const rubberPts: THREE.Vector3[] = [];
+            for (let s = 0; s <= 24; s++) {
+              const t = s / 24;
+              const mt = 1 - t;
+              const x = mt*mt*mt * p0.x + 3*mt*mt*t * h0.x + 3*mt*t*t * h1.x + t*t*t * p1.x;
+              const y = mt*mt*mt * p0.y + 3*mt*mt*t * h0.y + 3*mt*t*t * h1.y + t*t*t * p1.y;
+              rubberPts.push(new THREE.Vector3(x, y, 0.02));
+            }
+            const g = new THREE.BufferGeometry().setFromPoints(rubberPts);
+            sketchGroupRef.current.add(
+              new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0x34d399, linewidth: 2 }))
+            );
+          }
+
+          // Render anchor dots and handles of in-progress bezier
+          bPts.forEach(pt => {
+            const dot = new THREE.Mesh(
+              new THREE.BoxGeometry(0.06, 0.06, 0.001),
+              new THREE.MeshBasicMaterial({ color: 0x38bdf8 })
+            );
+            dot.position.set(pt.anchor.x, pt.anchor.y, 0.03);
+            sketchGroupRef.current.add(dot);
+
+            if (pt.handleOut && pt.handleOut.distanceTo(pt.anchor) > 0.02) {
+              const hG = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(pt.anchor.x, pt.anchor.y, 0.03),
+                new THREE.Vector3(pt.handleOut.x, pt.handleOut.y, 0.03),
+              ]);
+              sketchGroupRef.current.add(
+                new THREE.Line(hG, new THREE.LineBasicMaterial({ color: 0xfbbf24 }))
+              );
+              const hDot = new THREE.Mesh(
+                new THREE.CircleGeometry(0.025, 8),
+                new THREE.MeshBasicMaterial({ color: 0xfbbf24 })
+              );
+              hDot.position.set(pt.handleOut.x, pt.handleOut.y, 0.035);
+              sketchGroupRef.current.add(hDot);
+            }
+
+            if (pt.handleIn && pt.handleIn.distanceTo(pt.anchor) > 0.02) {
+              const hG = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(pt.anchor.x, pt.anchor.y, 0.03),
+                new THREE.Vector3(pt.handleIn.x, pt.handleIn.y, 0.03),
+              ]);
+              sketchGroupRef.current.add(
+                new THREE.Line(hG, new THREE.LineBasicMaterial({ color: 0xfbbf24 }))
+              );
+              const hDot = new THREE.Mesh(
+                new THREE.CircleGeometry(0.025, 8),
+                new THREE.MeshBasicMaterial({ color: 0xfbbf24 })
+              );
+              hDot.position.set(pt.handleIn.x, pt.handleIn.y, 0.035);
+              sketchGroupRef.current.add(hDot);
+            }
+          });
+        }
 
         if (pts.length > 0 && cursorWorldPos) {
           const curV = new THREE.Vector2(cursorWorldPos.x, cursorWorldPos.y);
@@ -2304,12 +2495,40 @@ export const Viewport3D: React.FC = () => {
               hoveredId = ent.id;
               break;
             }
+          } else if (ent.type === 'BEZIER') {
+            const sampled = CadDrawingEngine.sampleBezierEntity(ent, 16);
+            for (let i = 0; i < sampled.length - 1; i++) {
+              if (CadDrawingEngine.pointToSegmentDistance(snapPoint.position, sampled[i], sampled[i + 1]) < 0.25) {
+                hoveredId = ent.id;
+                break;
+              }
+            }
           }
         }
         editorStore.sketchHoveredEntityId = hoveredId;
 
+        // If actively dragging Bezier tangent handle
+        if (editorStore.activeDrawTool === 'BEZIER' && isDraggingBezierHandleRef.current) {
+          const lastIdx = activeBezierPointsRef.current.length - 1;
+          if (lastIdx >= 0) {
+            const anchor = activeBezierPointsRef.current[lastIdx].anchor;
+            const curPos = snapPoint.position;
+            const offset = new THREE.Vector2().subVectors(curPos, anchor);
+            activeBezierPointsRef.current[lastIdx].handleOut = curPos.clone();
+            activeBezierPointsRef.current[lastIdx].handleIn = new THREE.Vector2().subVectors(anchor, offset);
+          }
+        }
+
         // Calculate rubber band dimensions
-        if (activeDrawPointsRef.current.length > 0) {
+        if (editorStore.activeDrawTool === 'BEZIER' && activeBezierPointsRef.current.length > 0) {
+          const anchor = activeBezierPointsRef.current[activeBezierPointsRef.current.length - 1].anchor;
+          const dist = anchor.distanceTo(snapPoint.position);
+          const angle = (Math.atan2(snapPoint.position.y - anchor.y, snapPoint.position.x - anchor.x) * 180) / Math.PI;
+          setRubberBandInfo({
+            length: dist,
+            angleDeg: (angle + 360) % 360,
+          });
+        } else if (activeDrawPointsRef.current.length > 0) {
           const anchor = activeDrawPointsRef.current[activeDrawPointsRef.current.length - 1];
           const dist = anchor.distanceTo(snapPoint.position);
           const angle = (Math.atan2(snapPoint.position.y - anchor.y, snapPoint.position.x - anchor.x) * 180) / Math.PI;
@@ -2798,7 +3017,39 @@ export const Viewport3D: React.FC = () => {
       const pos2D = new THREE.Vector2(cursorWorldPos.x, cursorWorldPos.y);
       const tool = editorStore.activeDrawTool;
 
-      if (tool === 'LINE') {
+      if (tool === 'BEZIER') {
+        const bPts = activeBezierPointsRef.current;
+        if (bPts.length === 0) {
+          const newPt: BezierControlPoint = {
+            anchor: pos2D.clone(),
+            handleOut: pos2D.clone(),
+          };
+          activeBezierPointsRef.current = [newPt];
+          isDraggingBezierHandleRef.current = true;
+        } else {
+          const firstPt = bPts[0];
+          // Check if snapping to first point of this bezier curve to close loop
+          if (bPts.length >= 2 && pos2D.distanceTo(firstPt.anchor) < 0.35) {
+            editorStore.addSketchEntity({
+              id: `bezier_${Date.now()}`,
+              type: 'BEZIER',
+              points: [...bPts],
+              closed: true,
+            });
+            activeBezierPointsRef.current = [];
+            isDraggingBezierHandleRef.current = false;
+            setRubberBandInfo(null);
+            editorStore.showNotification('Boucle Bézier fermée avec succès');
+          } else {
+            const newPt: BezierControlPoint = {
+              anchor: pos2D.clone(),
+              handleOut: pos2D.clone(),
+            };
+            activeBezierPointsRef.current.push(newPt);
+            isDraggingBezierHandleRef.current = true;
+          }
+        }
+      } else if (tool === 'LINE') {
         const pts = activeDrawPointsRef.current;
         if (pts.length === 0) {
           activeDrawPointsRef.current = [pos2D];
@@ -3303,6 +3554,13 @@ export const Viewport3D: React.FC = () => {
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (editorStore.mode === 'curve') {
+      if (editorStore.activeDrawTool === 'BEZIER' && isDraggingBezierHandleRef.current) {
+        isDraggingBezierHandleRef.current = false;
+      }
+      return;
+    }
+
     if (editorStore.isLassoModeActive && isLassoDraggingRef.current && lassoStart) {
       isLassoDraggingRef.current = false;
       const rect = containerRef.current?.getBoundingClientRect();

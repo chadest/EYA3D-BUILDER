@@ -70,6 +70,14 @@ export default function App() {
 
       {/* Main Workspace Area (3D Viewport + Right Inspector Panel) */}
       <div className="flex flex-1 relative overflow-hidden">
+        {/* Floating Notification Toast */}
+        {editorStore.notificationToast && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 pointer-events-none flex items-center space-x-2 px-4 py-2 bg-[#1C1E22]/95 border border-blue-500/40 text-blue-200 text-xs font-medium rounded-full shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-top-2">
+            <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping" />
+            <span>{editorStore.notificationToast.message}</span>
+          </div>
+        )}
+
         {/* Anti-Freeze Emergency Rescue Banner */}
         <AntiFreezeRescueBanner />
 

@@ -14,6 +14,7 @@ export type DrawToolType =
   | 'CIRCLE'
   | 'ARC'
   | 'SPLINE'
+  | 'BEZIER'
   | 'TRIM'
   | 'EXTEND'
   | 'FILLET'
@@ -87,12 +88,25 @@ export interface SplineSketchEntity extends BaseSketchEntity {
   points: THREE.Vector2[];
 }
 
+export interface BezierControlPoint {
+  anchor: THREE.Vector2;
+  handleIn?: THREE.Vector2;
+  handleOut?: THREE.Vector2;
+}
+
+export interface BezierSketchEntity extends BaseSketchEntity {
+  type: 'BEZIER';
+  points: BezierControlPoint[];
+  closed: boolean;
+}
+
 export type SketchEntity =
   | LineSketchEntity
   | RectSketchEntity
   | CircleSketchEntity
   | ArcSketchEntity
-  | SplineSketchEntity;
+  | SplineSketchEntity
+  | BezierSketchEntity;
 
 export interface SketchSettings {
   gridSnapEnabled: boolean;

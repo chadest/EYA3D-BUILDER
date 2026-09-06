@@ -13,6 +13,7 @@ import {
   CircleSketchEntity,
   ArcSketchEntity,
   SplineSketchEntity,
+  BezierSketchEntity,
   SnapPoint,
   SnapType,
   SketchSettings,
@@ -119,6 +120,31 @@ export class CadDrawingEngine {
               entityId: ent.id,
               sourceLabel: idx === 0 || idx === ent.points.length - 1 ? 'Extrémité Spline' : 'Nœud Spline',
             });
+          });
+        } else if (ent.type === 'BEZIER') {
+          ent.points.forEach((pt, idx) => {
+            candidateSnaps.push({
+              position: pt.anchor.clone(),
+              type: 'ENDPOINT',
+              entityId: ent.id,
+              sourceLabel: idx === 0 ? 'Point Initial Bézier' : `Ancre Bézier ${idx + 1}`,
+            });
+            if (pt.handleOut) {
+              candidateSnaps.push({
+                position: pt.handleOut.clone(),
+                type: 'ENDPOINT',
+                entityId: ent.id,
+                sourceLabel: `Poignée Sortie ${idx + 1}`,
+              });
+            }
+            if (pt.handleIn) {
+              candidateSnaps.push({
+                position: pt.handleIn.clone(),
+                type: 'ENDPOINT',
+                entityId: ent.id,
+                sourceLabel: `Poignée Entrée ${idx + 1}`,
+              });
+            }
           });
         }
       }
@@ -499,6 +525,24 @@ export class CadDrawingEngine {
           area: w * h,
           isClockwise: false,
         });
+      } else if (ent.type === 'BEZIER' && ent.closed && ent.points.length >= 2) {
+        const pts = this.sampleBezierEntity(ent, 24);
+        if (pts.length >= 3) {
+          let area = 0;
+          for (let i = 0; i < pts.length; i++) {
+            const j = (i + 1) % pts.length;
+            area += pts[i].x * pts[j].y;
+            area -= pts[j].x * pts[i].y;
+          }
+          area = Math.abs(area) * 0.5;
+          profiles.push({
+            id: `profile_bezier_${ent.id}`,
+            points: pts,
+            entityIds: [ent.id],
+            area,
+            isClockwise: false,
+          });
+        }
       }
     }
 
@@ -570,6 +614,38 @@ export class CadDrawingEngine {
     }
 
     return profiles;
+  }
+
+  /**
+   * Sample smooth 2D points along a cubic Bézier curve entity
+   */
+  public static sampleBezierEntity(ent: BezierSketchEntity, segmentsPerSpan: number = 24): THREE.Vector2[] {
+    const pts: THREE.Vector2[] = [];
+    if (!ent.points || ent.points.length < 2) return pts;
+
+    const spanCount = ent.closed ? ent.points.length : ent.points.length - 1;
+    for (let i = 0; i < spanCount; i++) {
+      const p0 = ent.points[i].anchor;
+      const hOut = ent.points[i].handleOut || p0;
+      const nextIdx = (i + 1) % ent.points.length;
+      const p1 = ent.points[nextIdx].anchor;
+      const hIn = ent.points[nextIdx].handleIn || p1;
+
+      const count = i === spanCount - 1 && !ent.closed ? segmentsPerSpan : segmentsPerSpan - 1;
+      for (let s = 0; s <= count; s++) {
+        const t = s / segmentsPerSpan;
+        const mt = 1 - t;
+        const mt2 = mt * mt;
+        const mt3 = mt2 * mt;
+        const t2 = t * t;
+        const t3 = t2 * t;
+
+        const x = mt3 * p0.x + 3 * mt2 * t * hOut.x + 3 * mt * t2 * hIn.x + t3 * p1.x;
+        const y = mt3 * p0.y + 3 * mt2 * t * hOut.y + 3 * mt * t2 * hIn.y + t3 * p1.y;
+        pts.push(new THREE.Vector2(x, y));
+      }
+    }
+    return pts;
   }
 
   /**

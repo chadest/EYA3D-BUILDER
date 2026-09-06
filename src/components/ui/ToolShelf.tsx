@@ -63,6 +63,7 @@ import {
   Share2,
   Upload,
   Download,
+  Spline,
 } from 'lucide-react';
 import { modelIOEngine } from '../../core/io/ModelIOEngine';
 import { motion } from 'motion/react';
@@ -768,12 +769,23 @@ export const ToolShelf: React.FC = () => {
             <span className="text-[10px] hidden sm:inline">{editorStore.isDrawingLocked2D ? 'Vue 2D Fixée' : 'Vue Libre'}</span>
           </button>
 
+          {/* Toggle 2D / 3D Mode */}
+          <button
+            onClick={() => editorStore.toggle2D3DMode()}
+            className="flex items-center space-x-1 px-2 py-1 bg-[#0F1113] hover:bg-[#2D3139] border border-[#2D3139] text-sky-400 hover:text-sky-300 rounded text-xs transition-colors cursor-pointer"
+            title="Basculer en Vue 3D pour inspecter ce qui a été fait"
+          >
+            <Box className="w-3.5 h-3.5" />
+            <span className="text-[10px] hidden sm:inline">Basculer 3D</span>
+          </button>
+
           <div className="h-4 w-px bg-[#2D3139]" />
 
           {/* Primary CAD Drawing Tools */}
           <div className="flex items-center bg-[#0F1113] p-1 rounded-lg border border-[#2D3139] space-x-0.5">
             {[
               { id: 'SELECT' as DrawToolType, label: 'Sélection', icon: <Crosshair className="w-3.5 h-3.5" /> },
+              { id: 'BEZIER' as DrawToolType, label: 'Courbe Bézier (Plume)', icon: <Spline className="w-3.5 h-3.5 text-sky-400" /> },
               { id: 'LINE' as DrawToolType, label: 'Ligne (L)', icon: <PenLine className="w-3.5 h-3.5" /> },
               { id: 'RECTANGLE' as DrawToolType, label: 'Rectangle (R)', icon: <Square className="w-3.5 h-3.5" /> },
               { id: 'CIRCLE' as DrawToolType, label: 'Cercle (C)', icon: <Circle className="w-3.5 h-3.5" /> },

@@ -38,10 +38,11 @@ export function applyArrayModifier(
   geometry: THREE.BufferGeometry,
   config: ArrayModifierConfig
 ): THREE.BufferGeometry {
-  if (!config.enabled || config.count <= 1) return geometry;
+  if (!geometry || !geometry.attributes?.position || !config.enabled || config.count <= 1) return geometry;
 
   const geom = geometry.index ? geometry.toNonIndexed() : geometry.clone();
   const posAttr = geom.attributes.position;
+  if (!posAttr) return geometry;
   const count = posAttr.count;
 
   const oldPositions = Array.from(posAttr.array);
@@ -75,10 +76,11 @@ export function applyMirrorModifier(
   geometry: THREE.BufferGeometry,
   config: MirrorModifierConfig
 ): THREE.BufferGeometry {
-  if (!config.enabled) return geometry;
+  if (!geometry || !geometry.attributes?.position || !config.enabled) return geometry;
 
   const geom = geometry.index ? geometry.toNonIndexed() : geometry.clone();
   const posAttr = geom.attributes.position;
+  if (!posAttr) return geometry;
   const count = posAttr.count;
 
   const oldPositions = Array.from(posAttr.array);
@@ -138,6 +140,9 @@ export function processModifierStack(
   sourceGeometry: THREE.BufferGeometry,
   modifiers: ModifierConfig[]
 ): THREE.BufferGeometry {
+  if (!sourceGeometry || typeof sourceGeometry.clone !== 'function') {
+    return new THREE.BufferGeometry();
+  }
   let currentGeom = sourceGeometry.clone();
 
   for (const mod of modifiers) {

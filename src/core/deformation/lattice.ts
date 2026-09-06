@@ -45,8 +45,10 @@ export function generateDefaultLatticeCage(
   geometry: THREE.BufferGeometry,
   resolution: [number, number, number] = [3, 3, 3]
 ): { points: THREE.Vector3[]; bbox: THREE.Box3 } {
-  geometry.computeBoundingBox();
-  const bbox = geometry.boundingBox ? geometry.boundingBox.clone() : new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1));
+  if (geometry && typeof geometry.computeBoundingBox === 'function') {
+    geometry.computeBoundingBox();
+  }
+  const bbox = (geometry && geometry.boundingBox) ? geometry.boundingBox.clone() : new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1));
 
   // Expand bounding box slightly for comfortable margin
   bbox.expandByScalar(0.1);
@@ -84,13 +86,16 @@ export function applyLatticeDeformation(
   resolution: [number, number, number],
   cagePoints: THREE.Vector3[]
 ): THREE.BufferGeometry {
-  if (cagePoints.length === 0) return geometry;
+  if (!geometry || cagePoints.length === 0) return geometry;
 
   const geom = geometry.index ? geometry.toNonIndexed() : geometry.clone();
-  geom.computeBoundingBox();
-  const bbox = geom.boundingBox!;
+  if (typeof geom.computeBoundingBox === 'function') {
+    geom.computeBoundingBox();
+  }
+  const bbox = geom.boundingBox || new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1));
 
   const posAttr = geom.attributes.position;
+  if (!posAttr) return geom;
   const count = posAttr.count;
 
   const [nx, ny, nz] = resolution;

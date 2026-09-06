@@ -28,6 +28,7 @@ export interface OptimizationSettings {
   aggressiveFrustumCulling: boolean;     // Masquage hors-champ agressif (force mesh.frustumCulled = true)
   antiFreezeDetectorEnabled: boolean;    // Détecteur Anti-Freeze Actif (Surveillance Web Worker >1500ms)
   antiFreezeThresholdMs: number;         // Seuil de détection du freeze en millisecondes (défaut: 1500ms)
+  simulationCollisionsEnabled: boolean;  // Active/Désactive le calcul des collisions entre objets pendant les déplacements en simulation
 
   // Section C: Automation & Periodic System
   periodicAutoOptimization: boolean;     // Garbage collector Three.js périodique
@@ -83,6 +84,7 @@ export const DEFAULT_OPTIMIZATION_SETTINGS: OptimizationSettings = {
   aggressiveFrustumCulling: true,
   antiFreezeDetectorEnabled: true,
   antiFreezeThresholdMs: 1500,
+  simulationCollisionsEnabled: true,
   periodicAutoOptimization: true,
   autoOptimizationIntervalMinutes: 5,
 };

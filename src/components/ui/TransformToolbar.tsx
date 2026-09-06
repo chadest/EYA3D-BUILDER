@@ -1,10 +1,11 @@
 import React, { useEffect } from 'react';
-import { Move, RotateCw, Maximize2, BoxSelect } from 'lucide-react';
+import { Move, RotateCw, Maximize2, BoxSelect, Ruler } from 'lucide-react';
 import { editorStore } from '../../store/EditorStore';
 
 export const TransformToolbar: React.FC = () => {
   const gizmoMode = editorStore.gizmoMode;
   const isLassoModeActive = editorStore.isLassoModeActive;
+  const isMeasureToolActive = editorStore.isMeasureToolActive;
   const [, setForceUpdate] = React.useState({});
 
   useEffect(() => {
@@ -29,6 +30,8 @@ export const TransformToolbar: React.FC = () => {
           editorStore.setGizmoMode('scale');
         } else if (key === 'l') {
           editorStore.setLassoModeActive(!editorStore.isLassoModeActive);
+        } else if (key === 'm') {
+          editorStore.toggleMeasureTool();
         }
       }
     };
@@ -39,6 +42,7 @@ export const TransformToolbar: React.FC = () => {
 
   return (
     <div className="flex items-center bg-black/60 backdrop-blur-md border border-white/10 rounded-xl p-1.5 shadow-2xl space-x-1 select-none">
+      {/* Transform Gizmo Controls */}
       <button
         onClick={() => editorStore.setGizmoMode('translate')}
         title="Déplacement (G)"
@@ -86,6 +90,22 @@ export const TransformToolbar: React.FC = () => {
       >
         <BoxSelect size={18} />
       </button>
+
+      <div className="w-[1px] h-5 bg-white/10 my-auto" />
+
+      {/* 3D Measure / Ruler Tool */}
+      <button
+        onClick={() => editorStore.toggleMeasureTool()}
+        title="Outil de Mesure 3D (M) - Cliquer 2 points pour calculer la distance"
+        className={`p-2 rounded-lg transition-all duration-200 flex items-center justify-center ${
+          isMeasureToolActive
+            ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/30 font-semibold border border-emerald-400/40'
+            : 'text-slate-400 hover:text-white hover:bg-white/10'
+        }`}
+      >
+        <Ruler size={18} />
+      </button>
     </div>
   );
 };
+

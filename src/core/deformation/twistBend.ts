@@ -31,13 +31,16 @@ export function applyTwist(
   angleDegrees: number,
   axis: 'x' | 'y' | 'z' = 'y'
 ): THREE.BufferGeometry {
-  if (Math.abs(angleDegrees) < 0.01) return geometry;
+  if (!geometry || Math.abs(angleDegrees) < 0.01) return geometry;
 
   const geom = geometry.index ? geometry.toNonIndexed() : geometry.clone();
-  geom.computeBoundingBox();
-  const bbox = geom.boundingBox!;
+  if (typeof geom.computeBoundingBox === 'function') {
+    geom.computeBoundingBox();
+  }
+  const bbox = geom.boundingBox || new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1));
 
   const posAttr = geom.attributes.position;
+  if (!posAttr) return geom;
   const count = posAttr.count;
 
   const minVal = axis === 'x' ? bbox.min.x : axis === 'y' ? bbox.min.y : bbox.min.z;
@@ -91,13 +94,16 @@ export function applyBend(
   angleDegrees: number,
   axis: 'x' | 'y' | 'z' = 'y'
 ): THREE.BufferGeometry {
-  if (Math.abs(angleDegrees) < 0.01) return geometry;
+  if (!geometry || Math.abs(angleDegrees) < 0.01) return geometry;
 
   const geom = geometry.index ? geometry.toNonIndexed() : geometry.clone();
-  geom.computeBoundingBox();
-  const bbox = geom.boundingBox!;
+  if (typeof geom.computeBoundingBox === 'function') {
+    geom.computeBoundingBox();
+  }
+  const bbox = geom.boundingBox || new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1));
 
   const posAttr = geom.attributes.position;
+  if (!posAttr) return geom;
   const count = posAttr.count;
 
   const minVal = axis === 'x' ? bbox.min.x : axis === 'y' ? bbox.min.y : bbox.min.z;

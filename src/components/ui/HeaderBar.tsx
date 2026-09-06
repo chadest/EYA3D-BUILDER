@@ -29,7 +29,7 @@ import {
 } from 'lucide-react';
 import * as THREE from 'three';
 import { editorStore } from '../../store/EditorStore';
-import { exportToOBJ, exportToSTL, downloadFile } from '../../core/export/exporter';
+import { modelIOEngine } from '../../core/io/ModelIOEngine';
 import { useTranslation } from '../../context/LanguageContext';
 
 export const HeaderBar: React.FC = () => {
@@ -73,24 +73,32 @@ export const HeaderBar: React.FC = () => {
     return editorStore.subscribe(() => setTick(t => t + 1));
   }, []);
 
-  const handleExportOBJ = () => {
-    const selObj = editorStore.getSelectedObject();
-    if (!selObj || !selObj.mesh) {
-      alert('Please select an object in the scene to export.');
-      return;
-    }
-    const content = exportToOBJ(selObj.mesh);
-    downloadFile(content, `${selObj.name || 'Eya3DMesh'}.obj`, 'text/plain');
+  const handleImportModel = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.obj,.stl,.fbx';
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (file) {
+        await modelIOEngine.importFile(file);
+      }
+    };
+    input.click();
   };
 
-  const handleExportSTL = () => {
+  const handleExportOBJ = () => {
     const selObj = editorStore.getSelectedObject();
-    if (!selObj || !selObj.mesh) {
-      alert('Please select an object in the scene to export.');
-      return;
-    }
-    const content = exportToSTL(selObj.mesh);
-    downloadFile(content, `${selObj.name || 'Eya3DMesh'}.stl`, 'text/plain');
+    modelIOEngine.exportOBJ(selObj?.mesh, selObj?.name || 'PolyCraftMesh');
+  };
+
+  const handleExportSTL = (binary: boolean = true) => {
+    const selObj = editorStore.getSelectedObject();
+    modelIOEngine.exportSTL(selObj?.mesh, selObj?.name || 'PolyCraftMesh', binary);
+  };
+
+  const handleExportFBX = () => {
+    const selObj = editorStore.getSelectedObject();
+    modelIOEngine.exportFBX(selObj?.mesh, selObj?.name || 'PolyCraftMesh');
   };
 
   const handleAddPrimitive = (type: string) => {
@@ -146,11 +154,9 @@ export const HeaderBar: React.FC = () => {
   const handleDuplicateSelected = () => {
     const sel = editorStore.getSelectedObject();
     if (sel && sel.mesh) {
-      const cloneGeom = sel.mesh.geometry.clone();
-      const cloneMat = (sel.mesh.material as THREE.Material).clone();
-      const newMesh = new THREE.Mesh(cloneGeom, cloneMat);
-      newMesh.position.copy(sel.mesh.position).add(new THREE.Vector3(0.5, 0, 0.5));
-      editorStore.addObject(`${sel.name}_copy`, newMesh);
+      const clonedObject = sel.mesh.clone(true);
+      clonedObject.position.add(new THREE.Vector3(0.5, 0, 0.5));
+      editorStore.addObject(`${sel.name}_copy`, clonedObject, sel.type);
     }
   };
 
@@ -192,21 +198,49 @@ export const HeaderBar: React.FC = () => {
                 <div className="my-1 border-t border-[#2D3139]" />
                 <button
                   onClick={() => {
+                    handleImportModel();
+                    setActiveMenu(null);
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-[#2D3139] hover:text-[#4A90E2] font-semibold text-emerald-400"
+                >
+                  Import Model (.OBJ, .STL, .FBX)...
+                </button>
+                <div className="my-1 border-t border-[#2D3139]" />
+                <button
+                  onClick={() => {
                     handleExportOBJ();
                     setActiveMenu(null);
                   }}
                   className="w-full text-left px-3 py-1.5 hover:bg-[#2D3139] hover:text-[#4A90E2]"
                 >
-                  Export .OBJ
+                  Export .OBJ (Wavefront)
                 </button>
                 <button
                   onClick={() => {
-                    handleExportSTL();
+                    handleExportSTL(true);
                     setActiveMenu(null);
                   }}
                   className="w-full text-left px-3 py-1.5 hover:bg-[#2D3139] hover:text-[#4A90E2]"
                 >
-                  Export .STL
+                  Export .STL (Binary - 3D Print)
+                </button>
+                <button
+                  onClick={() => {
+                    handleExportSTL(false);
+                    setActiveMenu(null);
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-[#2D3139] hover:text-[#4A90E2]"
+                >
+                  Export .STL (ASCII)
+                </button>
+                <button
+                  onClick={() => {
+                    handleExportFBX();
+                    setActiveMenu(null);
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-[#2D3139] hover:text-[#4A90E2]"
+                >
+                  Export .FBX (7.4 3D)
                 </button>
               </div>
             )}

@@ -49,7 +49,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [activeTab, setActiveTab] = useState<'optimization' | 'languages' | 'themes' | 'shortcuts'>(initialTab);
   
   const [optimizationConfig, setOptimizationConfig] = useState<OptimizationSettings>(() => {
-    return { ...DEFAULT_OPTIMIZATION_SETTINGS };
+    return { ...threeOptimizationEngine.getSettings(), simulationCollisionsEnabled: editorStore.simulationCollisionsEnabled };
   });
 
   const [themeConfig, setThemeConfig] = useState<ThemeSettings>(() => ({
@@ -65,6 +65,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setActiveTab(initialTab);
+      setOptimizationConfig({
+        ...threeOptimizationEngine.getSettings(),
+        simulationCollisionsEnabled: editorStore.simulationCollisionsEnabled,
+      });
     }
   }, [isOpen, initialTab]);
 

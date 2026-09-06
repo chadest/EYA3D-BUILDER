@@ -227,6 +227,7 @@ export class SculptingEngine {
     config: SculptingBrushConfig,
     dragDeltaLocal?: THREE.Vector3
   ): void {
+    if (!mesh || !mesh.geometry || !mesh.geometry.attributes) return;
     const geometry = mesh.geometry;
     const posAttr = geometry.attributes.position;
     const normAttr = geometry.attributes.normal;

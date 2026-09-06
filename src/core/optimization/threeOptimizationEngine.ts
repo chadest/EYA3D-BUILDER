@@ -74,6 +74,22 @@ class ThreeOptimizationEngine {
     // --- SECTION C : Automatisation, Garbage Collector & Détecteur Anti-Freeze ---
     this.setupPeriodicGC(scene, renderer);
 
+    // Synchronisation des collisions physiques globales
+    if (typeof window !== 'undefined') {
+      try {
+        import('../../store/EditorStore').then(({ editorStore }) => {
+          if (editorStore.simulationCollisionsEnabled !== settings.simulationCollisionsEnabled) {
+            editorStore.setSimulationCollisionsEnabled(settings.simulationCollisionsEnabled);
+          }
+        });
+        import('../physics/PhysicsEngine').then(({ physicsEngine }) => {
+          physicsEngine.setCollisionsEnabled(settings.simulationCollisionsEnabled);
+        });
+      } catch (e) {
+        console.warn('[ThreeOptimizationEngine] PhysicsEngine sync error:', e);
+      }
+    }
+
     // Synchronisation du Détecteur Anti-Freeze
     if (typeof window !== 'undefined') {
       try {

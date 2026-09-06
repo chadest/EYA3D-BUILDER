@@ -40,6 +40,12 @@ import { threeOptimizationEngine } from '../../core/optimization/threeOptimizati
 import { CadDrawingEngine } from '../../core/drawing/cadDrawingEngine';
 import { SketchEntity, LineSketchEntity, RectSketchEntity, CircleSketchEntity, ArcSketchEntity, SplineSketchEntity, SnapPoint } from '../../types/drawing';
 import { SketchOverlayHUD } from '../drawing/SketchOverlayHUD';
+import { modelIOEngine } from '../../core/io/ModelIOEngine';
+import { MeasurementPanel } from '../ui/MeasurementPanel';
+import { MeasurementViewportOverlay } from './MeasurementViewportOverlay';
+import { raycastSmartSnap, calculateMeasureData } from '../../core/measurement/measurementUtils';
+import { update3DMeasurementScene } from '../../core/measurement/measurement3DRenderer';
+import { MeasurementItem } from '../../types/measurement';
 
 // Heavyweight Monaco editor lazy loading
 const LazyScriptEditor = lazy(() =>
@@ -192,21 +198,24 @@ const ViewOrientationGizmo: React.FC<ViewOrientationGizmoProps> = ({ cameraRef, 
 };
 
 // Utility functions for Geometry Manipulation (Vertex, Edge, Face)
-const getVertexPosition = (geom: THREE.BufferGeometry, index: number, target: THREE.Vector3) => {
+const getVertexPosition = (geom: THREE.BufferGeometry | undefined | null, index: number, target: THREE.Vector3) => {
+  if (!geom || typeof geom.getAttribute !== 'function') return;
   const posAttr = geom.getAttribute('position');
   if (posAttr) {
     target.fromBufferAttribute(posAttr, index);
   }
 };
 
-const setVertexPosition = (geom: THREE.BufferGeometry, index: number, value: THREE.Vector3) => {
+const setVertexPosition = (geom: THREE.BufferGeometry | undefined | null, index: number, value: THREE.Vector3) => {
+  if (!geom || typeof geom.getAttribute !== 'function') return;
   const posAttr = geom.getAttribute('position');
   if (posAttr) {
     posAttr.setXYZ(index, value.x, value.y, value.z);
   }
 };
 
-const getFaceIndices = (geom: THREE.BufferGeometry, faceIndex: number): number[] => {
+const getFaceIndices = (geom: THREE.BufferGeometry | undefined | null, faceIndex: number): number[] => {
+  if (!geom) return [];
   const indexAttr = geom.index;
   if (indexAttr) {
     return [
@@ -218,7 +227,8 @@ const getFaceIndices = (geom: THREE.BufferGeometry, faceIndex: number): number[]
   return [faceIndex * 3, faceIndex * 3 + 1, faceIndex * 3 + 2];
 };
 
-const getEdgesList = (geom: THREE.BufferGeometry): [number, number][] => {
+const getEdgesList = (geom: THREE.BufferGeometry | undefined | null): [number, number][] => {
+  if (!geom || typeof geom.getAttribute !== 'function') return [];
   const edges: [number, number][] = [];
   const edgeKeys = new Set<string>();
   
@@ -265,6 +275,98 @@ const getEdgesList = (geom: THREE.BufferGeometry): [number, number][] => {
   return edges;
 };
 
+// Helper to find all coplanar triangles forming the quad or n-gon face
+const getConnectedCoplanarFaces = (
+  geom: THREE.BufferGeometry | undefined | null,
+  startFaceIndex: number,
+  toleranceDegrees: number = 4.0
+): number[] => {
+  if (!geom || typeof geom.getAttribute !== 'function') return [startFaceIndex];
+  const posAttr = geom.getAttribute('position');
+  if (!posAttr) return [startFaceIndex];
+
+  const faceCount = geom.index ? geom.index.count / 3 : posAttr.count / 3;
+  if (startFaceIndex < 0 || startFaceIndex >= faceCount) return [];
+
+  const getFaceNormalAndVertices = (fIdx: number) => {
+    const idxs = getFaceIndices(geom, fIdx);
+    const vA = new THREE.Vector3();
+    const vB = new THREE.Vector3();
+    const vC = new THREE.Vector3();
+    getVertexPosition(geom, idxs[0], vA);
+    getVertexPosition(geom, idxs[1], vB);
+    getVertexPosition(geom, idxs[2], vC);
+    const normal = new THREE.Vector3();
+    new THREE.Triangle(vA, vB, vC).getNormal(normal);
+    return { vA, vB, vC, normal, idxs };
+  };
+
+  const startInfo = getFaceNormalAndVertices(startFaceIndex);
+  if (startInfo.normal.lengthSq() < 0.0001) return [startFaceIndex];
+
+  const cosTolerance = Math.cos((toleranceDegrees * Math.PI) / 180);
+
+  // Map each edge to the faces that share it
+  const edgeToFaces = new Map<string, number[]>();
+  for (let f = 0; f < faceCount; f++) {
+    const idxs = getFaceIndices(geom, f);
+    const triEdges = [
+      [idxs[0], idxs[1]],
+      [idxs[1], idxs[2]],
+      [idxs[2], idxs[0]]
+    ];
+    for (const [v1, v2] of triEdges) {
+      const minV = Math.min(v1, v2);
+      const maxV = Math.max(v1, v2);
+      const key = `${minV}_${maxV}`;
+      const list = edgeToFaces.get(key) || [];
+      list.push(f);
+      edgeToFaces.set(key, list);
+    }
+  }
+
+  const result: number[] = [];
+  const visited = new Set<number>();
+  const queue: number[] = [startFaceIndex];
+  visited.add(startFaceIndex);
+
+  while (queue.length > 0) {
+    const currFace = queue.shift()!;
+    result.push(currFace);
+
+    const currIdxs = getFaceIndices(geom, currFace);
+    const triEdges = [
+      [currIdxs[0], currIdxs[1]],
+      [currIdxs[1], currIdxs[2]],
+      [currIdxs[2], currIdxs[0]]
+    ];
+
+    for (const [v1, v2] of triEdges) {
+      const minV = Math.min(v1, v2);
+      const maxV = Math.max(v1, v2);
+      const key = `${minV}_${maxV}`;
+      const neighbors = edgeToFaces.get(key) || [];
+
+      for (const nFace of neighbors) {
+        if (!visited.has(nFace)) {
+          const nInfo = getFaceNormalAndVertices(nFace);
+          const dot = startInfo.normal.dot(nInfo.normal);
+          if (dot >= cosTolerance) {
+            // Check distance to plane
+            const dist = Math.abs(startInfo.normal.dot(nInfo.vA.clone().sub(startInfo.vA)));
+            if (dist < 0.02) {
+              visited.add(nFace);
+              queue.push(nFace);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return result;
+};
+
 export const Viewport3D: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -286,6 +388,8 @@ export const Viewport3D: React.FC = () => {
   const cycloramaRef = useRef<StudioCyclorama | null>(null);
   const planeRef = useRef<THREE.Mesh | null>(null);
   const xRayWireframeMapRef = useRef<Map<string, THREE.LineSegments>>(new Map());
+  const skeletonHelperRef = useRef<THREE.SkeletonHelper | null>(null);
+  const boneSphereGroupRef = useRef<THREE.Group>(new THREE.Group());
 
   const isSculptingRef = useRef<boolean>(false);
   const isShiftPressedRef = useRef<boolean>(false);
@@ -298,9 +402,12 @@ export const Viewport3D: React.FC = () => {
   const editFaceCentersRef = useRef<THREE.Points | null>(null);
   const editDummyRef = useRef<THREE.Object3D>(new THREE.Object3D());
   const lastDummyPosition = useRef<THREE.Vector3>(new THREE.Vector3());
+  const initialVertexPositionsRef = useRef<Float32Array | null>(null);
+  const initialDummyMatrixInverse = useRef<THREE.Matrix4>(new THREE.Matrix4());
   const isDraggingEditDummy = useRef<boolean>(false);
   const [helperTrigger, setHelperTrigger] = useState(0);
   const [hoveredFaceIndex, setHoveredFaceIndex] = useState<number | null>(null);
+  const [hoveredEdgeIndex, setHoveredEdgeIndex] = useState<number | null>(null);
   const [, setTick] = useState(0);
 
   // Lasso / Box Selection State
@@ -327,6 +434,9 @@ export const Viewport3D: React.FC = () => {
   const simulationGrabbedObjIdRef = useRef<string | null>(null);
   const simulationGrabPlaneRef = useRef<THREE.Plane>(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0));
   const simulationGrabOffsetRef = useRef<THREE.Vector3>(new THREE.Vector3());
+
+  // 3D Measurement Scene Group Reference
+  const measurementGroupRef = useRef<THREE.Group>(new THREE.Group());
 
   // Camera 2D Lock / LookAt Sync with EditorStore
   useEffect(() => {
@@ -573,9 +683,22 @@ export const Viewport3D: React.FC = () => {
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
         e.preventDefault();
         editorStore.redoGeometry();
-      } else if (!e.ctrlKey && !e.metaKey && !e.altKey && document.activeElement?.tagName !== 'INPUT') {
+      } else if (!e.ctrlKey && !e.metaKey && !e.altKey && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
         const key = e.key.toLowerCase();
-        if (key === 'g') {
+        if (key === '1' || key === '&') {
+          editorStore.setSelectionLevel('vertex');
+        } else if (key === '2' || key === 'é') {
+          editorStore.setSelectionLevel('edge');
+        } else if (key === '3' || key === '"') {
+          editorStore.setSelectionLevel('face');
+        } else if (e.key === 'Tab') {
+          e.preventDefault();
+          if (editorStore.mode === 'edit') {
+            editorStore.setMode('object');
+          } else if (editorStore.mode === 'object' && editorStore.selectedObjectId) {
+            editorStore.setMode('edit');
+          }
+        } else if (key === 'g') {
           editorStore.setGizmoMode('translate');
         } else if (key === 'r') {
           editorStore.setGizmoMode('rotate');
@@ -587,6 +710,17 @@ export const Viewport3D: React.FC = () => {
           transformRef.current.showY = !transformRef.current.showY;
         } else if (key === 'z' && transformRef.current) {
           transformRef.current.showZ = !transformRef.current.showZ;
+        } else if (key === 'm') {
+          editorStore.toggleMeasureTool();
+        } else if (e.key === 'Escape') {
+          if (editorStore.isMeasureToolActive) {
+            if (editorStore.currentMeasuringStart) {
+              editorStore.currentMeasuringStart = null;
+              editorStore.notify();
+            } else {
+              editorStore.setMeasureToolActive(false);
+            }
+          }
         } else if (key === 'f' && editorStore.mode === 'sculpt') {
           e.preventDefault();
           if (e.shiftKey) {
@@ -664,21 +798,25 @@ export const Viewport3D: React.FC = () => {
     if (!selObj || !selObj.mesh) return;
     
     const geom = selObj.baseGeometry || selObj.geometryBackup || selObj.mesh.geometry;
+    if (!geom || typeof geom.getAttribute !== 'function') return;
     const posAttr = geom.getAttribute('position');
     if (!posAttr) return;
     
-    // Calculate world delta translation
-    const currentPos = editDummyRef.current.position;
-    const deltaTranslation = new THREE.Vector3().subVectors(currentPos, lastDummyPosition.current);
-    
-    // Transform deltaTranslation into local coordinate space of the mesh
-    const localDelta = deltaTranslation.clone();
-    localDelta.applyQuaternion(selObj.mesh.quaternion.clone().invert());
-    localDelta.divide(selObj.mesh.scale);
-    
+    const initialArray = initialVertexPositionsRef.current;
+    if (!initialArray) return;
+
+    editDummyRef.current.updateMatrixWorld(true);
+    const deltaMatrix = new THREE.Matrix4().multiplyMatrices(
+      editDummyRef.current.matrixWorld,
+      initialDummyMatrixInverse.current
+    );
+
+    selObj.mesh.updateMatrixWorld(true);
+    const meshWorldMatrix = selObj.mesh.matrixWorld;
+    const meshInverseMatrix = selObj.mesh.matrixWorld.clone().invert();
+
     // Get unique vertices to update
     const vertexIndices = new Set<number>();
-    
     if (editorStore.selectionLevel === 'vertex') {
       editorStore.selectedIndices.vertices.forEach(vIdx => vertexIndices.add(vIdx));
     } else if (editorStore.selectionLevel === 'edge') {
@@ -695,39 +833,40 @@ export const Viewport3D: React.FC = () => {
         indices.forEach(vIdx => vertexIndices.add(vIdx));
       });
     }
-    
+
     if (vertexIndices.size > 0) {
       const temp = new THREE.Vector3();
       vertexIndices.forEach(vIdx => {
-        getVertexPosition(geom, vIdx, temp);
-        temp.add(localDelta);
-        setVertexPosition(geom, vIdx, temp);
+        temp.set(
+          initialArray[vIdx * 3],
+          initialArray[vIdx * 3 + 1],
+          initialArray[vIdx * 3 + 2]
+        );
+        temp.applyMatrix4(meshWorldMatrix);
+        temp.applyMatrix4(deltaMatrix);
+        temp.applyMatrix4(meshInverseMatrix);
+
+        posAttr.setXYZ(vIdx, temp.x, temp.y, temp.z);
       });
-      
+
       posAttr.needsUpdate = true;
-      geom.computeVertexNormals();
-      geom.computeBoundingBox();
-      geom.computeBoundingSphere();
-      
+      if (typeof geom.computeVertexNormals === 'function') geom.computeVertexNormals();
+      if (typeof geom.computeBoundingBox === 'function') geom.computeBoundingBox();
+      if (typeof geom.computeBoundingSphere === 'function') geom.computeBoundingSphere();
+
       if (selObj.geometryBackup) {
         selObj.geometryBackup.copy(geom);
       }
-      
-      // Update the smoothed/subdivided mesh in real-time
+
       editorStore.reevaluateModifiers(selObj.id);
-      
-      // Update any wireframe/other visual representations of this object in the scene
+
       const overlay = xRayWireframeMapRef.current.get(selObj.id);
       if (overlay) {
         overlay.geometry.dispose();
         overlay.geometry = new THREE.WireframeGeometry(geom);
       }
     }
-    
-    // Re-save last dummy position
-    lastDummyPosition.current.copy(currentPos);
-    
-    // Force recreate visual edit mode helper geometries to match new vertex positions!
+
     setHelperTrigger(t => t + 1);
   };
 
@@ -750,13 +889,18 @@ export const Viewport3D: React.FC = () => {
     }
     
     const mesh = selObj.mesh;
+    mesh.updateMatrixWorld(true);
     const geom = selObj.baseGeometry || selObj.geometryBackup || mesh.geometry;
+    if (!geom || typeof geom.getAttribute !== 'function') return;
     const posAttr = geom.getAttribute('position');
     if (!posAttr) return;
     
     const edgesList = getEdgesList(geom);
     const selectedVerts = new Set(editorStore.selectedIndices.vertices);
-    
+    const selectedEdges = new Set(editorStore.selectedIndices.edges);
+    const selectedFaces = editorStore.selectedIndices.faces;
+    const selectedFacesSet = new Set(selectedFaces);
+
     // 2. Generate point helper (Vertices) if Vertex level is selected
     if (editorStore.selectionLevel === 'vertex') {
       const vertexCount = posAttr.count;
@@ -770,15 +914,15 @@ export const Viewport3D: React.FC = () => {
         ptsPositions[i * 3 + 2] = posAttr.getZ(i);
         
         if (selectedVerts.has(i)) {
-          // Selected: Orange/Gold (rgb: 0.98, 0.45, 0.08)
-          ptsColors[i * 3] = 0.98;
+          // Selected: Vibrant Orange (rgb: 1.0, 0.45, 0.0)
+          ptsColors[i * 3] = 1.0;
           ptsColors[i * 3 + 1] = 0.45;
-          ptsColors[i * 3 + 2] = 0.08;
+          ptsColors[i * 3 + 2] = 0.0;
         } else {
-          // Unselected: Blue (rgb: 0.23, 0.51, 0.96)
-          ptsColors[i * 3] = 0.23;
-          ptsColors[i * 3 + 1] = 0.51;
-          ptsColors[i * 3 + 2] = 0.96;
+          // Unselected: Vivid Electric Blue (rgb: 0.0, 0.6, 1.0)
+          ptsColors[i * 3] = 0.0;
+          ptsColors[i * 3 + 1] = 0.6;
+          ptsColors[i * 3 + 2] = 1.0;
         }
       }
       
@@ -786,7 +930,7 @@ export const Viewport3D: React.FC = () => {
       ptsGeom.setAttribute('color', new THREE.BufferAttribute(ptsColors, 3));
       
       const ptsMat = new THREE.PointsMaterial({
-        size: 8,
+        size: 7,
         sizeAttenuation: false,
         vertexColors: true,
         depthTest: false,
@@ -800,74 +944,79 @@ export const Viewport3D: React.FC = () => {
       sceneRef.current.add(editPointsRef.current);
     }
     
-    // 3. Generate line helper (Edges)
-    const linesGeom = new THREE.BufferGeometry();
-    const linesPositions = new Float32Array(edgesList.length * 2 * 3);
-    const linesColors = new Float32Array(edgesList.length * 2 * 3);
-    
-    const selectedEdges = new Set(editorStore.selectedIndices.edges);
-    
-    edgesList.forEach((edge, i) => {
-      const v1 = edge[0];
-      const v2 = edge[1];
+    // 3. Generate line helper (Electric Blue Wireframe + Orange Selected Edges)
+    if (edgesList.length > 0) {
+      const linesGeom = new THREE.BufferGeometry();
+      const linesPositions = new Float32Array(edgesList.length * 2 * 3);
+      const linesColors = new Float32Array(edgesList.length * 2 * 3);
       
-      const temp1 = new THREE.Vector3();
-      const temp2 = new THREE.Vector3();
-      getVertexPosition(geom, v1, temp1);
-      getVertexPosition(geom, v2, temp2);
+      edgesList.forEach((edge, i) => {
+        const v1 = edge[0];
+        const v2 = edge[1];
+        
+        const temp1 = new THREE.Vector3();
+        const temp2 = new THREE.Vector3();
+        getVertexPosition(geom, v1, temp1);
+        getVertexPosition(geom, v2, temp2);
+        
+        linesPositions[i * 6] = temp1.x;
+        linesPositions[i * 6 + 1] = temp1.y;
+        linesPositions[i * 6 + 2] = temp1.z;
+        
+        linesPositions[i * 6 + 3] = temp2.x;
+        linesPositions[i * 6 + 4] = temp2.y;
+        linesPositions[i * 6 + 5] = temp2.z;
+        
+        const isSel = editorStore.selectionLevel === 'edge' && selectedEdges.has(i);
+        const isHov = editorStore.selectionLevel === 'edge' && hoveredEdgeIndex === i;
+
+        let r = 0.0, g = 0.6, b = 1.0; // Electric Blue Default
+        if (isSel) {
+          r = 1.0; g = 0.45; b = 0.0; // Vibrant Orange Selected
+        } else if (isHov) {
+          r = 0.0; g = 1.0; b = 1.0; // Neon Cyan Hovered
+        }
+        
+        linesColors[i * 6] = r;
+        linesColors[i * 6 + 1] = g;
+        linesColors[i * 6 + 2] = b;
+        linesColors[i * 6 + 3] = r;
+        linesColors[i * 6 + 4] = g;
+        linesColors[i * 6 + 5] = b;
+      });
       
-      linesPositions[i * 6] = temp1.x;
-      linesPositions[i * 6 + 1] = temp1.y;
-      linesPositions[i * 6 + 2] = temp1.z;
+      linesGeom.setAttribute('position', new THREE.BufferAttribute(linesPositions, 3));
+      linesGeom.setAttribute('color', new THREE.BufferAttribute(linesColors, 3));
       
-      linesPositions[i * 6 + 3] = temp2.x;
-      linesPositions[i * 6 + 4] = temp2.y;
-      linesPositions[i * 6 + 5] = temp2.z;
+      const linesMat = new THREE.LineBasicMaterial({
+        vertexColors: true,
+        linewidth: 1.5,
+        depthTest: true,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -1,
+      });
       
-      const isSel = selectedEdges.has(i);
-      const r = isSel ? 1.0 : 0.28;
-      const g = isSel ? 0.95 : 0.33;
-      const b = isSel ? 0.0 : 0.41;
+      editLinesRef.current = new THREE.LineSegments(linesGeom, linesMat);
+      editLinesRef.current.position.copy(mesh.position);
+      editLinesRef.current.quaternion.copy(mesh.quaternion);
+      editLinesRef.current.scale.copy(mesh.scale);
       
-      linesColors[i * 6] = r;
-      linesColors[i * 6 + 1] = g;
-      linesColors[i * 6 + 2] = b;
-      linesColors[i * 6 + 3] = r;
-      linesColors[i * 6 + 4] = g;
-      linesColors[i * 6 + 5] = b;
-    });
-    
-    linesGeom.setAttribute('position', new THREE.BufferAttribute(linesPositions, 3));
-    linesGeom.setAttribute('color', new THREE.BufferAttribute(linesColors, 3));
-    
-    const linesMat = new THREE.LineBasicMaterial({
-      vertexColors: true,
-      linewidth: 2,
-      depthTest: false,
-    });
-    
-    editLinesRef.current = new THREE.LineSegments(linesGeom, linesMat);
-    editLinesRef.current.position.copy(mesh.position);
-    editLinesRef.current.quaternion.copy(mesh.quaternion);
-    editLinesRef.current.scale.copy(mesh.scale);
-    
-    // Only show edges helper when EDGE selection is active
-    if (editorStore.selectionLevel === 'edge') {
+      // Wireframe overlay is visible in ALL Edit sub-modes
       sceneRef.current.add(editLinesRef.current);
     }
     
-    // 4. Generate faces highlight helper & face centers helper
-    const selectedFaces = editorStore.selectedIndices.faces;
-    const selectedFacesSet = new Set(selectedFaces);
-    
+    // 4. Generate faces highlight helper (Warm Amber/Gold Fill)
     if (editorStore.selectionLevel === 'face') {
-      // Faces highlight: Combine selected faces and hovered face
       const facesToDraw = [...selectedFaces];
       const hoverIndex = hoveredFaceIndex;
       const isHoveredAlreadySelected = hoverIndex !== null && selectedFacesSet.has(hoverIndex);
       
       if (hoverIndex !== null && !isHoveredAlreadySelected) {
-        facesToDraw.push(hoverIndex);
+        const hoverCoplanar = getConnectedCoplanarFaces(geom, hoverIndex);
+        hoverCoplanar.forEach(f => {
+          if (!facesToDraw.includes(f)) facesToDraw.push(f);
+        });
       }
       
       if (facesToDraw.length > 0) {
@@ -898,11 +1047,11 @@ export const Viewport3D: React.FC = () => {
           facesPositions[i * 9 + 8] = temp3.z;
           
           const isSelected = selectedFacesSet.has(fIdx);
-          // Selected: Vibrant Orange (rgb: 0.98, 0.45, 0.08)
-          // Hovered: Beautiful Light Neon Blue (rgb: 0.0, 0.95, 1.0)
-          const r = isSelected ? 0.98 : 0.0;
-          const g = isSelected ? 0.45 : 0.95;
-          const b = isSelected ? 0.08 : 1.0;
+          // Selected: Warm Gold/Amber (rgb: 0.85, 0.62, 0.38)
+          // Hovered: Translucent light blue preview
+          const r = isSelected ? 0.85 : 0.2;
+          const g = isSelected ? 0.62 : 0.8;
+          const b = isSelected ? 0.38 : 1.0;
           
           for (let v = 0; v < 3; v++) {
             facesColors[i * 9 + v * 3] = r;
@@ -917,13 +1066,13 @@ export const Viewport3D: React.FC = () => {
         const facesMat = new THREE.MeshBasicMaterial({
           vertexColors: true,
           transparent: true,
-          opacity: 0.45,
+          opacity: 0.65,
           side: THREE.DoubleSide,
           depthTest: true,
           depthWrite: false,
           polygonOffset: true,
-          polygonOffsetFactor: -1,
-          polygonOffsetUnits: -1,
+          polygonOffsetFactor: -2,
+          polygonOffsetUnits: -2,
         });
         
         editFacesHighlightRef.current = new THREE.Mesh(facesGeom, facesMat);
@@ -933,60 +1082,9 @@ export const Viewport3D: React.FC = () => {
         
         sceneRef.current.add(editFacesHighlightRef.current);
       }
-      
-      // Face center dots (discreet Blender-style 3px dots)
-      const faceCount = geom.index ? geom.index.count / 3 : posAttr.count / 3;
-      const centersGeom = new THREE.BufferGeometry();
-      const centersPositions = new Float32Array(faceCount * 3);
-      const centersColors = new Float32Array(faceCount * 3);
-      
-      for (let fIdx = 0; fIdx < faceCount; fIdx++) {
-        const indices = getFaceIndices(geom, fIdx);
-        const temp1 = new THREE.Vector3();
-        const temp2 = new THREE.Vector3();
-        const temp3 = new THREE.Vector3();
-        
-        getVertexPosition(geom, indices[0], temp1);
-        getVertexPosition(geom, indices[1], temp2);
-        getVertexPosition(geom, indices[2], temp3);
-        
-        const centroid = new THREE.Vector3().add(temp1).add(temp2).add(temp3).divideScalar(3);
-        centersPositions[fIdx * 3] = centroid.x;
-        centersPositions[fIdx * 3 + 1] = centroid.y;
-        centersPositions[fIdx * 3 + 2] = centroid.z;
-        
-        if (selectedFacesSet.has(fIdx)) {
-          // Orange/Gold for selected center: rgb(0.98, 0.45, 0.08)
-          centersColors[fIdx * 3] = 0.98;
-          centersColors[fIdx * 3 + 1] = 0.45;
-          centersColors[fIdx * 3 + 2] = 0.08;
-        } else {
-          // Crisp clean white for unselected center: rgb(1.0, 1.0, 1.0)
-          centersColors[fIdx * 3] = 1.0;
-          centersColors[fIdx * 3 + 1] = 1.0;
-          centersColors[fIdx * 3 + 2] = 1.0;
-        }
-      }
-      
-      centersGeom.setAttribute('position', new THREE.BufferAttribute(centersPositions, 3));
-      centersGeom.setAttribute('color', new THREE.BufferAttribute(centersColors, 3));
-      
-      const centersMat = new THREE.PointsMaterial({
-        size: 3.5,
-        sizeAttenuation: false,
-        vertexColors: true,
-        depthTest: true, // Prevents dots on back faces from displaying on top of front faces
-      });
-      
-      editFaceCentersRef.current = new THREE.Points(centersGeom, centersMat);
-      editFaceCentersRef.current.position.copy(mesh.position);
-      editFaceCentersRef.current.quaternion.copy(mesh.quaternion);
-      editFaceCentersRef.current.scale.copy(mesh.scale);
-      
-      sceneRef.current.add(editFaceCentersRef.current);
     }
     
-    // 5. Position editDummyRef at centroid and attach transformControls
+    // 5. Position editDummyRef at centroid and align gizmo
     let hasSelection = false;
     
     if (editorStore.selectionLevel === 'vertex' && selectedVerts.size > 0) {
@@ -1018,10 +1116,20 @@ export const Viewport3D: React.FC = () => {
           centroid.add(temp);
         });
         centroid.divideScalar(uniqueVerts.size);
-        centroid.applyMatrix4(mesh.matrixWorld);
         
+        // Edge orientation alignment
+        const firstEdgeIdx = Array.from(selectedEdges)[0];
+        const [ev1, ev2] = edgesList[firstEdgeIdx];
+        const p1 = new THREE.Vector3();
+        const p2 = new THREE.Vector3();
+        getVertexPosition(geom, ev1, p1);
+        getVertexPosition(geom, ev2, p2);
+        const tangent = new THREE.Vector3().subVectors(p2, p1).normalize();
+        const worldTangent = tangent.clone().transformDirection(mesh.matrixWorld).normalize();
+
+        centroid.applyMatrix4(mesh.matrixWorld);
         editDummyRef.current.position.copy(centroid);
-        editDummyRef.current.quaternion.set(0, 0, 0, 1);
+        editDummyRef.current.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), worldTangent);
         hasSelection = true;
       }
     } else if (editorStore.selectionLevel === 'face' && selectedFacesSet.size > 0) {
@@ -1069,7 +1177,7 @@ export const Viewport3D: React.FC = () => {
         if (transformRef.current.object !== editDummyRef.current) {
           transformRef.current.attach(editDummyRef.current);
         }
-        if (editorStore.selectionLevel === 'face') {
+        if (editorStore.selectionLevel === 'face' || editorStore.selectionLevel === 'edge') {
           transformRef.current.setSpace('local');
         } else {
           transformRef.current.setSpace('world');
@@ -1089,6 +1197,7 @@ export const Viewport3D: React.FC = () => {
     editorStore.selectedIndices.faces.length,
     editorStore.selectedObjectId,
     hoveredFaceIndex,
+    hoveredEdgeIndex,
   ]);
 
   // Hook up event listeners on transformControls for editDummy manipulation
@@ -1100,10 +1209,17 @@ export const Viewport3D: React.FC = () => {
       if (editorStore.mode === 'edit' && transformControls.object === editDummyRef.current) {
         isDraggingEditDummy.current = true;
         lastDummyPosition.current.copy(editDummyRef.current.position);
-        
+
+        editDummyRef.current.updateMatrixWorld(true);
+        initialDummyMatrixInverse.current.copy(editDummyRef.current.matrixWorld).invert();
+
         const selObj = editorStore.getSelectedObject();
-        if (selObj) {
+        if (selObj && selObj.mesh) {
           editorStore.pushGeometryState(selObj.id);
+          const geom = selObj.baseGeometry || selObj.geometryBackup || selObj.mesh.geometry;
+          if (geom && geom.getAttribute('position')) {
+            initialVertexPositionsRef.current = new Float32Array(geom.getAttribute('position').array);
+          }
         }
       }
     };
@@ -1111,6 +1227,7 @@ export const Viewport3D: React.FC = () => {
     const handleMouseUp = () => {
       if (isDraggingEditDummy.current) {
         isDraggingEditDummy.current = false;
+        initialVertexPositionsRef.current = null;
         
         const selObj = editorStore.getSelectedObject();
         if (selObj && selObj.mesh) {
@@ -1428,6 +1545,8 @@ export const Viewport3D: React.FC = () => {
     scene.add(selectionGizmoRef.current);
     scene.add(editDummyRef.current);
     scene.add(sketchGroupRef.current);
+    scene.add(boneSphereGroupRef.current);
+    scene.add(measurementGroupRef.current);
 
     // Initialize Realistic Render Pipeline
     const renderPipeline = new RealisticRenderPipeline();
@@ -1539,30 +1658,33 @@ export const Viewport3D: React.FC = () => {
           }
 
           const mat = obj.mesh.material;
-          const materials = Array.isArray(mat) ? mat : [mat];
+          if (mat) {
+            const materials = Array.isArray(mat) ? mat : [mat];
 
-          materials.forEach(m => {
-            if (isXRayActive) {
-              if (!m.transparent || m.opacity !== 0.4 || m.depthWrite !== false) {
-                m.transparent = true;
-                m.opacity = 0.4;
-                m.depthWrite = false;
-                m.needsUpdate = true;
+            materials.forEach(m => {
+              if (!m) return;
+              if (isXRayActive) {
+                if (!m.transparent || m.opacity !== 0.4 || m.depthWrite !== false) {
+                  m.transparent = true;
+                  m.opacity = 0.4;
+                  m.depthWrite = false;
+                  m.needsUpdate = true;
+                }
+              } else {
+                if (m.transparent || m.opacity !== 1.0 || m.depthWrite !== true) {
+                  m.transparent = false;
+                  m.opacity = 1.0;
+                  m.depthWrite = true;
+                  m.needsUpdate = true;
+                }
               }
-            } else {
-              if (m.transparent || m.opacity !== 1.0 || m.depthWrite !== true) {
-                m.transparent = false;
-                m.opacity = 1.0;
-                m.depthWrite = true;
-                m.needsUpdate = true;
-              }
-            }
-          });
+            });
+          }
 
           // Manage X-Ray Wireframe Overlay
           let wireframeOverlay = xRayWireframeMapRef.current.get(obj.id);
           if (isXRayActive) {
-            if (!wireframeOverlay) {
+            if (!wireframeOverlay && obj.mesh.geometry) {
               const wireGeom = new THREE.WireframeGeometry(obj.mesh.geometry);
               const wireMat = new THREE.LineBasicMaterial({
                 color: 0x38bdf8, // Neon sky blue contrast
@@ -1573,7 +1695,7 @@ export const Viewport3D: React.FC = () => {
               wireframeOverlay = new THREE.LineSegments(wireGeom, wireMat);
               obj.mesh.add(wireframeOverlay);
               xRayWireframeMapRef.current.set(obj.id, wireframeOverlay);
-            } else {
+            } else if (wireframeOverlay) {
               wireframeOverlay.visible = true;
             }
           } else {
@@ -1604,8 +1726,70 @@ export const Viewport3D: React.FC = () => {
         if (transformControls.object && transformControls.object !== editDummyRef.current) {
           transformControls.detach();
         }
+      } else if (editorStore.mode === 'rigging') {
+        // In rigging / pose mode, if an individual bone is selected, attach gizmo to bone (rotate/translate)
+        if (selObj && selObj.mesh instanceof THREE.SkinnedMesh && selObj.mesh.skeleton && editorStore.isPoseMode) {
+          const activeBone = selObj.mesh.skeleton.bones.find(b => b.name === editorStore.selectedBoneName);
+          if (activeBone) {
+            if (transformControls.object !== activeBone) {
+              transformControls.attach(activeBone);
+            }
+          } else {
+            transformControls.detach();
+          }
+        } else if (selObj && selObj.mesh) {
+          if (transformControls.object !== selObj.mesh) {
+            transformControls.attach(selObj.mesh);
+          }
+        } else {
+          transformControls.detach();
+        }
       } else {
         transformControls.detach();
+      }
+
+      // Synchronize SkeletonHelper & Bone Joint Spheres in Rigging Mode
+      if (editorStore.mode === 'rigging' && selObj && selObj.mesh instanceof THREE.SkinnedMesh && selObj.mesh.skeleton) {
+        if (!skeletonHelperRef.current || skeletonHelperRef.current.root !== selObj.mesh) {
+          if (skeletonHelperRef.current) scene.remove(skeletonHelperRef.current);
+          const helper = new THREE.SkeletonHelper(selObj.mesh);
+          (helper.material as THREE.LineBasicMaterial).linewidth = 2;
+          (helper.material as THREE.LineBasicMaterial).depthTest = !editorStore.showBoneXRay;
+          (helper.material as THREE.LineBasicMaterial).transparent = true;
+          (helper.material as THREE.LineBasicMaterial).opacity = 0.9;
+          scene.add(helper);
+          skeletonHelperRef.current = helper;
+        } else {
+          skeletonHelperRef.current.visible = editorStore.showSkeletonBones;
+          (skeletonHelperRef.current.material as THREE.LineBasicMaterial).depthTest = !editorStore.showBoneXRay;
+        }
+
+        // Render interactive bone clickable spheres
+        boneSphereGroupRef.current.clear();
+        if (editorStore.showSkeletonBones && editorStore.isPoseMode) {
+          const sphereGeom = new THREE.SphereGeometry(0.04, 12, 12);
+          for (const bone of selObj.mesh.skeleton.bones) {
+            const isSelected = bone.name === editorStore.selectedBoneName;
+            const mat = new THREE.MeshBasicMaterial({
+              color: isSelected ? 0x10b981 : 0xf59e0b,
+              depthTest: !editorStore.showBoneXRay,
+              transparent: true,
+              opacity: 0.9,
+            });
+            const sphere = new THREE.Mesh(sphereGeom, mat);
+            const boneWorldPos = new THREE.Vector3();
+            bone.getWorldPosition(boneWorldPos);
+            sphere.position.copy(boneWorldPos);
+            sphere.userData = { isBoneMarker: true, boneName: bone.name };
+            boneSphereGroupRef.current.add(sphere);
+          }
+        }
+      } else {
+        if (skeletonHelperRef.current) {
+          scene.remove(skeletonHelperRef.current);
+          skeletonHelperRef.current = null;
+        }
+        boneSphereGroupRef.current.clear();
       }
 
       // Update 2D CAD Sketching & Spline Curve Visualization
@@ -1814,6 +1998,15 @@ export const Viewport3D: React.FC = () => {
       } else {
         sketchGroupRef.current.clear();
       }
+
+      // Update 3D Measurement Lines & Dimensions Visuals in Scene
+      update3DMeasurementScene(
+        measurementGroupRef.current,
+        editorStore.measurements,
+        editorStore.currentMeasuringStart,
+        editorStore.currentMeasuringHoverPos,
+        editorStore.selectedMeasurementId
+      );
 
       // Update Lattice Cage Wireframe
       if (selObj && editorStore.mode === 'deform') {
@@ -2029,6 +2222,39 @@ export const Viewport3D: React.FC = () => {
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (editorStore.isRenderMode) return;
     if (!containerRef.current || !sceneRef.current || !cameraRef.current) return;
+
+    // --- 3D Measurement Tool Real-Time Raycasting & Snapping ---
+    if (editorStore.isMeasureToolActive) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const mouse = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1
+      );
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(mouse, cameraRef.current);
+
+      const candidateMeshes = editorStore.objects.map(o => o.mesh).filter(Boolean) as THREE.Mesh[];
+      const snapResult = raycastSmartSnap(
+        raycaster,
+        candidateMeshes,
+        cameraRef.current,
+        rect.width,
+        rect.height,
+        editorStore.measureSnapSettings
+      );
+
+      if (snapResult) {
+        editorStore.currentMeasuringHoverPos = snapResult.point.clone();
+        editorStore.currentMeasuringSnapType = snapResult.snappedTo;
+        editorStore.currentMeasuringSnapObjName = snapResult.objectName || null;
+      } else {
+        editorStore.currentMeasuringHoverPos = null;
+        editorStore.currentMeasuringSnapType = 'none';
+        editorStore.currentMeasuringSnapObjName = null;
+      }
+      editorStore.notify();
+      return;
+    }
 
     // --- 2D CAD Sketching Real-time Snapping & Rubber Band Updates ---
     if (editorStore.mode === 'curve') {
@@ -2327,28 +2553,46 @@ export const Viewport3D: React.FC = () => {
       // Face Hover Raycasting in Edit Mode
       if (editorStore.mode === 'edit' && editorStore.selectionLevel === 'face' && selObj && selObj.mesh) {
         const cageGeom = selObj.baseGeometry || selObj.geometryBackup || selObj.mesh.geometry;
-        const tempMesh = new THREE.Mesh(cageGeom, Array.isArray(selObj.mesh.material) ? selObj.mesh.material[0] : selObj.mesh.material);
-        tempMesh.position.copy(selObj.mesh.position);
-        tempMesh.quaternion.copy(selObj.mesh.quaternion);
-        tempMesh.scale.copy(selObj.mesh.scale);
-        tempMesh.updateMatrix();
-        tempMesh.updateMatrixWorld(true);
+        if (cageGeom) {
+          const meshMat = (selObj.mesh as any).material;
+          const safeMat = Array.isArray(meshMat) ? meshMat[0] : meshMat || new THREE.MeshBasicMaterial();
+          const tempMesh = new THREE.Mesh(cageGeom, safeMat);
+          tempMesh.position.copy(selObj.mesh.position);
+          tempMesh.quaternion.copy(selObj.mesh.quaternion);
+          tempMesh.scale.copy(selObj.mesh.scale);
+          tempMesh.updateMatrix();
+          tempMesh.updateMatrixWorld(true);
 
-        const intersects = raycaster.intersectObject(tempMesh);
-        if (intersects.length > 0 && intersects[0].faceIndex !== undefined) {
-          const fIdx = intersects[0].faceIndex;
-          if (hoveredFaceIndex !== fIdx) {
-            setHoveredFaceIndex(fIdx);
+          const intersects = raycaster.intersectObject(tempMesh);
+          if (intersects.length > 0 && intersects[0].faceIndex !== undefined) {
+            const fIdx = intersects[0].faceIndex;
+            if (hoveredFaceIndex !== fIdx) {
+              setHoveredFaceIndex(fIdx);
+            }
+          } else {
+            if (hoveredFaceIndex !== null) setHoveredFaceIndex(null);
           }
         } else {
-          if (hoveredFaceIndex !== null) {
-            setHoveredFaceIndex(null);
-          }
+          if (hoveredFaceIndex !== null) setHoveredFaceIndex(null);
         }
       } else {
-        if (hoveredFaceIndex !== null) {
-          setHoveredFaceIndex(null);
+        if (hoveredFaceIndex !== null) setHoveredFaceIndex(null);
+      }
+
+      // Edge Hover Raycasting in Edit Mode
+      if (editorStore.mode === 'edit' && editorStore.selectionLevel === 'edge' && editLinesRef.current) {
+        raycaster.params.Line.threshold = 0.08;
+        const lineIntersects = raycaster.intersectObject(editLinesRef.current);
+        if (lineIntersects.length > 0 && lineIntersects[0].index !== undefined) {
+          const edgeIdx = Math.floor(lineIntersects[0].index / 2);
+          if (hoveredEdgeIndex !== edgeIdx) {
+            setHoveredEdgeIndex(edgeIdx);
+          }
+        } else {
+          if (hoveredEdgeIndex !== null) setHoveredEdgeIndex(null);
         }
+      } else {
+        if (hoveredEdgeIndex !== null) setHoveredEdgeIndex(null);
       }
     }
   };
@@ -2483,7 +2727,70 @@ export const Viewport3D: React.FC = () => {
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    // If Alt key or Middle/Right click is pressed, allow OrbitControls to orbit/pan the camera as in standard 3D shape view
+    if (e.altKey || e.button === 1 || e.button === 2) {
+      if (controlsRef.current) controlsRef.current.enabled = true;
+      return;
+    }
     if (e.button !== 0) return; // Left click only
+
+    // --- 3D Measurement Tool Pointer Down Handling ---
+    if (editorStore.isMeasureToolActive) {
+      if (!containerRef.current || !cameraRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const mouse = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1
+      );
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(mouse, cameraRef.current);
+
+      const candidateMeshes = editorStore.objects.map(o => o.mesh).filter(Boolean) as THREE.Mesh[];
+      const snapResult = raycastSmartSnap(
+        raycaster,
+        candidateMeshes,
+        cameraRef.current,
+        rect.width,
+        rect.height,
+        editorStore.measureSnapSettings
+      );
+
+      if (snapResult) {
+        if (!editorStore.currentMeasuringStart) {
+          editorStore.currentMeasuringStart = snapResult.point.clone();
+          editorStore.notify();
+        } else {
+          const startPt = editorStore.currentMeasuringStart;
+          const endPt = snapResult.point;
+          const data = calculateMeasureData(startPt, endPt);
+
+          const newMeas: MeasurementItem = {
+            id: `meas_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            start: {
+              position: [startPt.x, startPt.y, startPt.z],
+              snappedTo: editorStore.currentMeasuringSnapType,
+              objectId: snapResult.objectId,
+              objectName: snapResult.objectName,
+            },
+            end: {
+              position: [endPt.x, endPt.y, endPt.z],
+              snappedTo: snapResult.snappedTo,
+              objectId: snapResult.objectId,
+              objectName: snapResult.objectName,
+            },
+            distance: data.distance,
+            deltaX: data.deltaX,
+            deltaY: data.deltaY,
+            deltaZ: data.deltaZ,
+            createdDate: Date.now(),
+          };
+
+          editorStore.addMeasurement(newMeas);
+          editorStore.currentMeasuringStart = null;
+        }
+      }
+      return;
+    }
 
     // --- 2D CAD Sketching Pointer Down Actions ---
     if (editorStore.mode === 'curve') {
@@ -2874,49 +3181,123 @@ export const Viewport3D: React.FC = () => {
       raycaster.setFromCamera(mouse, cameraRef.current);
 
       if (editorStore.selectionLevel === 'vertex' && editPointsRef.current) {
-        raycaster.params.Points.threshold = 0.05;
+        raycaster.params.Points.threshold = 0.08;
         const intersects = raycaster.intersectObject(editPointsRef.current);
         if (intersects.length > 0) {
           const hit = intersects[0];
           if (hit.index !== undefined) {
-            editorStore.toggleSelectionIndex('vertices', hit.index);
+            if (e.shiftKey) {
+              editorStore.toggleSelectionIndex('vertices', hit.index);
+            } else {
+              editorStore.selectedIndices.vertices = [hit.index];
+            }
+            editorStore.notify();
+            setHelperTrigger(t => t + 1);
             e.stopPropagation();
             return;
           }
         }
-        editorStore.clearMeshSelections();
+        if (!e.shiftKey) {
+          editorStore.clearMeshSelections();
+          setHelperTrigger(t => t + 1);
+        }
       } else if (editorStore.selectionLevel === 'edge' && editLinesRef.current) {
-        raycaster.params.Line.threshold = 0.05;
+        raycaster.params.Line.threshold = 0.08;
         const intersects = raycaster.intersectObject(editLinesRef.current);
         if (intersects.length > 0) {
           const hit = intersects[0];
           if (hit.index !== undefined) {
             const edgeIdx = Math.floor(hit.index / 2);
-            editorStore.toggleSelectionIndex('edges', edgeIdx);
+            if (e.shiftKey) {
+              editorStore.toggleSelectionIndex('edges', edgeIdx);
+            } else {
+              editorStore.selectedIndices.edges = [edgeIdx];
+            }
+            editorStore.notify();
+            setHelperTrigger(t => t + 1);
             e.stopPropagation();
             return;
           }
         }
-        editorStore.clearMeshSelections();
+        if (!e.shiftKey) {
+          editorStore.clearMeshSelections();
+          setHelperTrigger(t => t + 1);
+        }
       } else if (editorStore.selectionLevel === 'face') {
         const cageGeom = selObj.baseGeometry || selObj.geometryBackup || selObj.mesh.geometry;
-        const tempMesh = new THREE.Mesh(cageGeom, Array.isArray(selObj.mesh.material) ? selObj.mesh.material[0] : selObj.mesh.material);
-        tempMesh.position.copy(selObj.mesh.position);
-        tempMesh.quaternion.copy(selObj.mesh.quaternion);
-        tempMesh.scale.copy(selObj.mesh.scale);
-        tempMesh.updateMatrix();
-        tempMesh.updateMatrixWorld(true);
+        if (cageGeom) {
+          const meshMat = (selObj.mesh as any).material;
+          const safeMat = Array.isArray(meshMat) ? meshMat[0] : meshMat || new THREE.MeshBasicMaterial();
+          const tempMesh = new THREE.Mesh(cageGeom, safeMat);
+          tempMesh.position.copy(selObj.mesh.position);
+          tempMesh.quaternion.copy(selObj.mesh.quaternion);
+          tempMesh.scale.copy(selObj.mesh.scale);
+          tempMesh.updateMatrix();
+          tempMesh.updateMatrixWorld(true);
 
-        const intersects = raycaster.intersectObject(tempMesh);
-        if (intersects.length > 0) {
-          const hit = intersects[0];
-          if (hit.faceIndex !== undefined) {
-            editorStore.toggleSelectionIndex('faces', hit.faceIndex);
-            e.stopPropagation();
+          const intersects = raycaster.intersectObject(tempMesh);
+          if (intersects.length > 0) {
+            const hit = intersects[0];
+            if (hit.faceIndex !== undefined) {
+              const coplanarFaces = getConnectedCoplanarFaces(cageGeom, hit.faceIndex);
+              if (e.shiftKey) {
+                const currentSet = new Set(editorStore.selectedIndices.faces);
+                const allPresent = coplanarFaces.every(f => currentSet.has(f));
+                if (allPresent) {
+                  coplanarFaces.forEach(f => currentSet.delete(f));
+                } else {
+                  coplanarFaces.forEach(f => currentSet.add(f));
+                }
+                editorStore.selectedIndices.faces = Array.from(currentSet);
+              } else {
+                editorStore.selectedIndices.faces = coplanarFaces;
+              }
+              editorStore.notify();
+              setHelperTrigger(t => t + 1);
+              e.stopPropagation();
+              return;
+            }
+          }
+        }
+        if (!e.shiftKey) {
+          editorStore.clearMeshSelections();
+          setHelperTrigger(t => t + 1);
+        }
+      }
+    } else if (editorStore.mode === 'rigging') {
+      if (!sceneRef.current || !cameraRef.current || !containerRef.current) return;
+      const selObj = editorStore.getSelectedObject();
+      const rect = containerRef.current.getBoundingClientRect();
+      const mouse = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1
+      );
+
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(mouse, cameraRef.current);
+
+      // Check if clicking on bone spheres in Pose Mode
+      if (editorStore.isPoseMode && boneSphereGroupRef.current.children.length > 0) {
+        const boneIntersects = raycaster.intersectObjects(boneSphereGroupRef.current.children);
+        if (boneIntersects.length > 0) {
+          const hitBoneObj = boneIntersects[0].object;
+          if (hitBoneObj.userData?.isBoneMarker && hitBoneObj.userData?.boneName) {
+            editorStore.setSelectedBoneName(hitBoneObj.userData.boneName);
             return;
           }
         }
-        editorStore.clearMeshSelections();
+      }
+
+      // Raycast Object Selection
+      const meshes = editorStore.objects.map(o => o.mesh!).filter(Boolean);
+      const intersects = raycaster.intersectObjects(meshes);
+
+      if (intersects.length > 0) {
+        const hit = intersects[0];
+        const hitObject = editorStore.objects.find(o => o.mesh === hit.object || (hit.object.parent && o.mesh === hit.object.parent));
+        if (hitObject) {
+          editorStore.setSelectedObject(hitObject.id);
+        }
       }
     }
   };
@@ -3016,15 +3397,19 @@ export const Viewport3D: React.FC = () => {
   const objPos = selObj?.mesh ? selObj.mesh.position : new THREE.Vector3(0, 0, 0);
   
   let objSize = new THREE.Vector3(0, 0, 0);
-  if (selObj?.mesh) {
+  if (selObj?.mesh && selObj.mesh.geometry && typeof selObj.mesh.geometry.computeBoundingBox === 'function') {
     selObj.mesh.geometry.computeBoundingBox();
     if (selObj.mesh.geometry.boundingBox) {
       selObj.mesh.geometry.boundingBox.getSize(objSize);
       objSize.multiply(selObj.mesh.scale);
     }
+  } else if (selObj?.mesh) {
+    const bbox = new THREE.Box3().setFromObject(selObj.mesh);
+    bbox.getSize(objSize);
   }
 
   const getCanvasCursorClass = () => {
+    if (editorStore.isMeasureToolActive) return 'cursor-crosshair';
     if (editorStore.isPanMode) return 'cursor-grab active:cursor-grabbing';
     if (editorStore.isLassoModeActive) return 'cursor-crosshair';
     if (drawingDataRef.current !== null) return 'cursor-crosshair';
@@ -3049,6 +3434,23 @@ export const Viewport3D: React.FC = () => {
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
       onPointerLeave={() => setHoveredFaceIndex(null)}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+      onDrop={async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          for (let i = 0; i < e.dataTransfer.files.length; i++) {
+            const file = e.dataTransfer.files[i];
+            const ext = file.name.split('.').pop()?.toLowerCase();
+            if (ext === 'obj' || ext === 'stl' || ext === 'fbx') {
+              await modelIOEngine.importFile(file);
+            }
+          }
+        }
+      }}
       className={`flex-1 w-full h-full relative ${getCanvasCursorClass()} bg-[#0B0D10] overflow-hidden select-none`}
     >
       {/* Top Left Floating Widgets (Orientation Gizmo, Transform Toolbar & Navigation Toolbar) */}
@@ -3164,6 +3566,12 @@ export const Viewport3D: React.FC = () => {
           )}
         </div>
       )}
+
+      {/* 3D Measurement Tool Screen-Projected Overlay HUD & Badges */}
+      <MeasurementViewportOverlay cameraRef={cameraRef} containerRef={containerRef} />
+
+      {/* 3D Measurement & Scale Calibration Floating Panel */}
+      <MeasurementPanel />
     </div>
   );
 };

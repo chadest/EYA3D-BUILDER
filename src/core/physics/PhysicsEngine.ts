@@ -7,11 +7,41 @@ export class PhysicsEngine {
   private world: RAPIER.World | null = null;
   private isInitialized: boolean = false;
   private rigidBodies: Map<string, RAPIER.RigidBody> = new Map();
+  private colliders: Map<string, RAPIER.Collider> = new Map();
+  private isCollisionsEnabled: boolean = true;
 
   async init() {
     if (this.isInitialized) return;
     await RAPIER.init();
     this.isInitialized = true;
+  }
+
+  public setCollisionsEnabled(enabled: boolean) {
+    this.isCollisionsEnabled = enabled;
+    this.updateAllCollisionGroups();
+  }
+
+  /**
+   * Updates Rapier collision interaction groups for dynamic and static colliders
+   * Group 0x0001 = Dynamic object
+   * Group 0x0002 = Environment/Ground
+   */
+  public updateAllCollisionGroups() {
+    if (!this.world) return;
+    // Membership / Filter mask:
+    // If collisions enabled: dynamic objects interact with each other (0x0001) and environment (0x0002) -> 0x00010003
+    // If collisions disabled: dynamic objects interact ONLY with environment (0x0002) and NOT with other dynamic objects -> 0x00010002
+    const dynamicGroup = this.isCollisionsEnabled ? 0x00010003 : 0x00010002;
+
+    this.colliders.forEach((collider, key) => {
+      if (key !== '__cyclorama__' && key !== '__plane__') {
+        try {
+          collider.setCollisionGroups(dynamicGroup);
+        } catch {
+          // ignore if collider freed
+        }
+      }
+    });
   }
 
   startSimulation(cyclorama: StudioCyclorama | null, plane: THREE.Mesh | null) {
@@ -21,12 +51,14 @@ export class PhysicsEngine {
     const gravity = new RAPIER.Vector3(0, -9.81, 0);
     this.world = new RAPIER.World(gravity);
     this.rigidBodies.clear();
+    this.colliders.clear();
+    this.isCollisionsEnabled = editorStore.simulationCollisionsEnabled;
 
     // Setup Cyclorama Collider
     if (editorStore.backdropType === 'StudioCyclorama' && cyclorama) {
-      this.setupTrimeshCollider(cyclorama.mesh, true);
+      this.setupTrimeshCollider(cyclorama.mesh, true, '__cyclorama__');
     } else if (editorStore.backdropType === 'Plane' && plane) {
-      this.setupCuboidCollider(plane, true);
+      this.setupCuboidCollider(plane, true, '__plane__');
     }
 
     // Setup Object Colliders
@@ -43,6 +75,7 @@ export class PhysicsEngine {
       this.world = null;
     }
     this.rigidBodies.clear();
+    this.colliders.clear();
   }
 
   step() {
@@ -143,6 +176,7 @@ export class PhysicsEngine {
     const body = this.rigidBodies.get(id)!;
     this.world.removeRigidBody(body);
     this.rigidBodies.delete(id);
+    this.colliders.delete(id);
   }
 
   private setupDynamicCollider(id: string, mesh: THREE.Mesh) {
@@ -167,15 +201,21 @@ export class PhysicsEngine {
       hz = size.z / 2;
     }
 
+    // Dynamic objects have membership 0x0001
+    // Filter: 0x0003 (collides with dynamic 0x0001 & ground 0x0002) if enabled, else 0x0002 (only ground)
+    const collisionGroup = this.isCollisionsEnabled ? 0x00010003 : 0x00010002;
+
     const colliderDesc = RAPIER.ColliderDesc.cuboid(hx, hy, hz)
       .setRestitution(0.2)
-      .setFriction(0.5);
-    this.world.createCollider(colliderDesc, rigidBody);
+      .setFriction(0.5)
+      .setCollisionGroups(collisionGroup);
+    const collider = this.world.createCollider(colliderDesc, rigidBody);
     
     this.rigidBodies.set(id, rigidBody);
+    this.colliders.set(id, collider);
   }
 
-  private setupTrimeshCollider(mesh: THREE.Mesh, isFixed: boolean) {
+  private setupTrimeshCollider(mesh: THREE.Mesh, isFixed: boolean, id: string = '__cyclorama__') {
     if (!this.world) return;
 
     mesh.geometry.computeVertexNormals();
@@ -211,11 +251,14 @@ export class PhysicsEngine {
     rigidBodyDesc.setRotation(mesh.quaternion);
 
     const rigidBody = this.world.createRigidBody(rigidBodyDesc);
-    const colliderDesc = RAPIER.ColliderDesc.trimesh(vertices, indices);
-    this.world.createCollider(colliderDesc, rigidBody);
+    // Environment collider has membership 0x0002 and interacts with dynamic bodies (0x0001) -> 0x00020001
+    const colliderDesc = RAPIER.ColliderDesc.trimesh(vertices, indices)
+      .setCollisionGroups(0x00020001);
+    const collider = this.world.createCollider(colliderDesc, rigidBody);
+    this.colliders.set(id, collider);
   }
 
-  private setupCuboidCollider(mesh: THREE.Mesh, isFixed: boolean) {
+  private setupCuboidCollider(mesh: THREE.Mesh, isFixed: boolean, id: string = '__plane__') {
     if (!this.world) return;
 
     const rigidBodyDesc = isFixed ? RAPIER.RigidBodyDesc.fixed() : RAPIER.RigidBodyDesc.dynamic();
@@ -235,8 +278,11 @@ export class PhysicsEngine {
       hz = size.z / 2;
     }
     
-    const colliderDesc = RAPIER.ColliderDesc.cuboid(hx, hy, hz);
-    this.world.createCollider(colliderDesc, rigidBody);
+    // Environment ground collider has membership 0x0002 and interacts with dynamic bodies (0x0001) -> 0x00020001
+    const colliderDesc = RAPIER.ColliderDesc.cuboid(hx, hy, hz)
+      .setCollisionGroups(0x00020001);
+    const collider = this.world.createCollider(colliderDesc, rigidBody);
+    this.colliders.set(id, collider);
   }
 }
 

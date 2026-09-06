@@ -18,6 +18,7 @@ export type EditorMode =
   | 'csg'          // Boolean operations (Union, Difference, Intersection)
   | 'parametric'   // Modifiers (Array, Mirror, SubD)
   | 'deform'       // Twist, Bend, Lattice Cage
+  | 'rigging'      // Character & Animal Rigging, Origin Pivot adjustment, Skinning, Pose Mode
   | 'animation'    // Keyframing, Timeline, Turntable, Playback
   | 'simulation';  // Physics, Rigid Body, Gravity, Dynamics
 
@@ -176,3 +177,6 @@ export interface HEMesh {
   faces: HEFace[];
   halfEdges: HEHalfEdge[];
 }
+
+export * from './measurement';
+

@@ -33,7 +33,12 @@ import {
   Tv,
   XCircle,
   Zap,
-  RotateCcw
+  RotateCcw,
+  Maximize2,
+  Move,
+  Crosshair,
+  Ruler,
+  RefreshCw
 } from 'lucide-react';
 import * as THREE from 'three';
 import { editorStore } from '../../store/EditorStore';
@@ -44,10 +49,10 @@ export const PropertyPanel: React.FC = () => {
   const [, setTick] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [backdropDropdownOpen, setBackdropDropdownOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'scene' | 'material' | 'modifiers'>('scene');
+  const [activeTab, setActiveTab] = useState<'scene' | 'transform' | 'material' | 'modifiers'>('scene');
   const [isPending, startTransition] = useTransition();
 
-  const handleTabChange = (tab: 'scene' | 'material' | 'modifiers') => {
+  const handleTabChange = (tab: 'scene' | 'transform' | 'material' | 'modifiers') => {
     startTransition(() => {
       setActiveTab(tab);
     });
@@ -110,6 +115,16 @@ export const PropertyPanel: React.FC = () => {
             title="Scene Outliner (Click to open)"
           >
             <Layers className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab('transform');
+              editorStore.togglePropertyPanel();
+            }}
+            className="p-2 rounded hover:bg-[#2D3139] text-[#8E9299] hover:text-white transition-all flex items-center justify-center"
+            title="Transform & Scale (Click to open)"
+          >
+            <Maximize2 className="w-4 h-4" />
           </button>
           <button
             onClick={() => {
@@ -517,6 +532,16 @@ export const PropertyPanel: React.FC = () => {
           Objects ({objects.length})
         </button>
         <button
+          onClick={() => handleTabChange('transform')}
+          className={`flex-1 py-2 text-center border-b-2 transition-colors ${
+            activeTab === 'transform'
+              ? 'border-[#4A90E2] text-white font-bold bg-[#16181C]'
+              : 'border-transparent text-[#8E9299] hover:text-white'
+          }`}
+        >
+          Transform
+        </button>
+        <button
           onClick={() => handleTabChange('material')}
           className={`flex-1 py-2 text-center border-b-2 transition-colors ${
             activeTab === 'material'
@@ -621,6 +646,365 @@ export const PropertyPanel: React.FC = () => {
                 );
               })}
           </div>
+        </div>
+      )}
+
+      {/* TAB CONTENT: TRANSFORM & SCALE */}
+      {activeTab === 'transform' && (
+        <div className="flex-1 p-3 space-y-3.5 overflow-y-auto text-xs">
+          {!selObj || !selObj.mesh ? (
+            <div className="p-4 text-center text-[#8E9299] bg-[#0F1113] rounded border border-[#2D3139]">
+              Sélectionnez un objet dans la scène pour modifier son échelle, position ou rotation.
+            </div>
+          ) : (() => {
+            const meshObj = selObj.mesh!;
+            meshObj.updateMatrixWorld(true);
+            const bbox = new THREE.Box3().setFromObject(meshObj);
+            const dims = new THREE.Vector3();
+            bbox.getSize(dims);
+            const maxDim = Math.max(dims.x, dims.y, dims.z);
+
+            const pos = meshObj.position;
+            const rotDeg = [
+              THREE.MathUtils.radToDeg(meshObj.rotation.x),
+              THREE.MathUtils.radToDeg(meshObj.rotation.y),
+              THREE.MathUtils.radToDeg(meshObj.rotation.z)
+            ];
+            const scl = meshObj.scale;
+
+            return (
+              <>
+                {/* Object Overview Banner */}
+                <div className="bg-[#0F1113] p-2.5 rounded-lg border border-[#2D3139] flex items-center justify-between">
+                  <div className="flex items-center space-x-2 truncate">
+                    <Box className="w-4 h-4 text-[#4A90E2] flex-shrink-0" />
+                    <span className="font-semibold text-white truncate">{selObj.name}</span>
+                  </div>
+                  <span className="text-[10px] text-slate-400 font-mono uppercase bg-[#1C1E22] px-1.5 py-0.5 rounded border border-[#2D3139]">
+                    {selObj.type}
+                  </span>
+                </div>
+
+                {/* 1. Real-World Dimensions HUD */}
+                <div className="bg-[#0F1113] p-3 rounded-lg border border-[#2D3139] space-y-2">
+                  <div className="flex items-center justify-between text-[#8E9299]">
+                    <span className="flex items-center space-x-1.5 font-bold uppercase tracking-wider text-[10px]">
+                      <Ruler className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Dimensions Volumétriques</span>
+                    </span>
+                    <span className="font-mono text-emerald-400 text-[11px] font-bold">
+                      {maxDim.toFixed(2)}m max
+                    </span>
+                  </div>
+                  
+                  <div className="grid grid-cols-3 gap-2 text-center pt-1 font-mono text-[11px]">
+                    <div className="bg-[#16181C] p-2 rounded border border-[#2D3139]">
+                      <div className="text-[#8E9299] text-[9px] uppercase">Largeur (X)</div>
+                      <div className="text-white font-bold">{dims.x.toFixed(2)}m</div>
+                    </div>
+                    <div className="bg-[#16181C] p-2 rounded border border-[#2D3139]">
+                      <div className="text-[#8E9299] text-[9px] uppercase">Hauteur (Y)</div>
+                      <div className="text-white font-bold">{dims.y.toFixed(2)}m</div>
+                    </div>
+                    <div className="bg-[#16181C] p-2 rounded border border-[#2D3139]">
+                      <div className="text-[#8E9299] text-[9px] uppercase">Longueur (Z)</div>
+                      <div className="text-white font-bold">{dims.z.toFixed(2)}m</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Quick Scale Presets (Fix Car/FBX/STL Scale) */}
+                <div className="bg-[#0F1113] p-3 rounded-lg border border-[#2D3139] space-y-2.5">
+                  <div className="flex items-center justify-between text-[#8E9299]">
+                    <span className="font-bold uppercase tracking-wider text-[10px] flex items-center space-x-1">
+                      <Maximize2 className="w-3.5 h-3.5 text-sky-400" />
+                      <span>Préréglages d'Échelle</span>
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-1.5 text-xs">
+                    <button
+                      onClick={() => {
+                        const currentMax = Math.max(dims.x, dims.y, dims.z);
+                        if (currentMax > 0) {
+                          const targetDim = 2.5;
+                          const factor = targetDim / currentMax;
+                          meshObj.scale.multiplyScalar(factor);
+                          meshObj.updateMatrixWorld(true);
+                          editorStore.notify();
+                        }
+                      }}
+                      className="px-2 py-1.5 rounded bg-[#16181C] border border-[#2D3139] hover:border-sky-400 text-sky-400 hover:text-white font-semibold transition-all flex items-center justify-center space-x-1"
+                      title="Ajuste automatiquement le modèle à l'échelle de la grille 3D (2.5m)"
+                    >
+                      <span>Ajuster à la grille (2.5m)</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        // Center model at origin
+                        meshObj.updateMatrixWorld(true);
+                        const b = new THREE.Box3().setFromObject(meshObj);
+                        const c = new THREE.Vector3();
+                        b.getCenter(c);
+                        meshObj.position.x -= c.x;
+                        meshObj.position.y -= c.y;
+                        meshObj.position.z -= c.z;
+                        meshObj.updateMatrixWorld(true);
+                        editorStore.notify();
+                      }}
+                      className="px-2 py-1.5 rounded bg-[#16181C] border border-[#2D3139] hover:border-emerald-400 text-emerald-400 hover:text-white font-semibold transition-all flex items-center justify-center space-x-1"
+                      title="Centre exactement le modèle au point d'origine (0, 0, 0)"
+                    >
+                      <Crosshair className="w-3.5 h-3.5 mr-1" />
+                      <span>Origine (0, 0, 0)</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        meshObj.scale.multiplyScalar(0.01);
+                        meshObj.updateMatrixWorld(true);
+                        editorStore.notify();
+                      }}
+                      className="px-2 py-1.5 rounded bg-[#16181C] border border-[#2D3139] hover:border-amber-400 text-amber-400 hover:text-white font-mono text-[11px] transition-all"
+                      title="Convertit les unités centimètres vers mètres (utile pour les FBX de voitures/jeux)"
+                    >
+                      0.01x (cm → m)
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        meshObj.scale.multiplyScalar(0.001);
+                        meshObj.updateMatrixWorld(true);
+                        editorStore.notify();
+                      }}
+                      className="px-2 py-1.5 rounded bg-[#16181C] border border-[#2D3139] hover:border-amber-400 text-amber-400 hover:text-white font-mono text-[11px] transition-all"
+                      title="Convertit les unités millimètres vers mètres (utile pour les STL/CAD)"
+                    >
+                      0.001x (mm → m)
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        meshObj.scale.multiplyScalar(0.5);
+                        meshObj.updateMatrixWorld(true);
+                        editorStore.notify();
+                      }}
+                      className="px-2 py-1 rounded bg-[#16181C] border border-[#2D3139] hover:border-slate-400 text-slate-300 font-mono text-[11px]"
+                    >
+                      0.5x (Réduire 50%)
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        meshObj.scale.multiplyScalar(2.0);
+                        meshObj.updateMatrixWorld(true);
+                        editorStore.notify();
+                      }}
+                      className="px-2 py-1 rounded bg-[#16181C] border border-[#2D3139] hover:border-slate-400 text-slate-300 font-mono text-[11px]"
+                    >
+                      2.0x (Doubler)
+                    </button>
+                  </div>
+                </div>
+
+                {/* 3. Numeric Position (X, Y, Z) */}
+                <div className="bg-[#0F1113] p-3 rounded-lg border border-[#2D3139] space-y-2">
+                  <div className="flex items-center justify-between text-[#8E9299]">
+                    <span className="font-bold uppercase tracking-wider text-[10px] flex items-center space-x-1">
+                      <Move className="w-3.5 h-3.5 text-blue-400" />
+                      <span>Position (m)</span>
+                    </span>
+                    <button
+                      onClick={() => {
+                        meshObj.position.set(0, 0, 0);
+                        meshObj.updateMatrixWorld(true);
+                        editorStore.notify();
+                      }}
+                      className="text-[10px] text-blue-400 hover:underline"
+                    >
+                      Reset (0,0,0)
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 font-mono">
+                    <div className="space-y-1">
+                      <span className="text-[#8E9299] text-[10px]">X</span>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={Number(pos.x.toFixed(3))}
+                        onChange={e => {
+                          meshObj.position.x = parseFloat(e.target.value) || 0;
+                          meshObj.updateMatrixWorld(true);
+                          editorStore.notify();
+                        }}
+                        className="w-full bg-[#16181C] border border-[#2D3139] rounded px-2 py-1 text-white text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[#8E9299] text-[10px]">Y</span>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={Number(pos.y.toFixed(3))}
+                        onChange={e => {
+                          meshObj.position.y = parseFloat(e.target.value) || 0;
+                          meshObj.updateMatrixWorld(true);
+                          editorStore.notify();
+                        }}
+                        className="w-full bg-[#16181C] border border-[#2D3139] rounded px-2 py-1 text-white text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[#8E9299] text-[10px]">Z</span>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={Number(pos.z.toFixed(3))}
+                        onChange={e => {
+                          meshObj.position.z = parseFloat(e.target.value) || 0;
+                          meshObj.updateMatrixWorld(true);
+                          editorStore.notify();
+                        }}
+                        className="w-full bg-[#16181C] border border-[#2D3139] rounded px-2 py-1 text-white text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. Numeric Rotation (X, Y, Z) in degrees */}
+                <div className="bg-[#0F1113] p-3 rounded-lg border border-[#2D3139] space-y-2">
+                  <div className="flex items-center justify-between text-[#8E9299]">
+                    <span className="font-bold uppercase tracking-wider text-[10px] flex items-center space-x-1">
+                      <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Rotation (Degrés)</span>
+                    </span>
+                    <button
+                      onClick={() => {
+                        meshObj.rotation.set(0, 0, 0);
+                        meshObj.updateMatrixWorld(true);
+                        editorStore.notify();
+                      }}
+                      className="text-[10px] text-amber-400 hover:underline"
+                    >
+                      Reset (0°)
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 font-mono">
+                    <div className="space-y-1">
+                      <span className="text-[#8E9299] text-[10px]">X°</span>
+                      <input
+                        type="number"
+                        step="5"
+                        value={Math.round(rotDeg[0])}
+                        onChange={e => {
+                          meshObj.rotation.x = THREE.MathUtils.degToRad(parseFloat(e.target.value) || 0);
+                          meshObj.updateMatrixWorld(true);
+                          editorStore.notify();
+                        }}
+                        className="w-full bg-[#16181C] border border-[#2D3139] rounded px-2 py-1 text-white text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[#8E9299] text-[10px]">Y°</span>
+                      <input
+                        type="number"
+                        step="5"
+                        value={Math.round(rotDeg[1])}
+                        onChange={e => {
+                          meshObj.rotation.y = THREE.MathUtils.degToRad(parseFloat(e.target.value) || 0);
+                          meshObj.updateMatrixWorld(true);
+                          editorStore.notify();
+                        }}
+                        className="w-full bg-[#16181C] border border-[#2D3139] rounded px-2 py-1 text-white text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[#8E9299] text-[10px]">Z°</span>
+                      <input
+                        type="number"
+                        step="5"
+                        value={Math.round(rotDeg[2])}
+                        onChange={e => {
+                          meshObj.rotation.z = THREE.MathUtils.degToRad(parseFloat(e.target.value) || 0);
+                          meshObj.updateMatrixWorld(true);
+                          editorStore.notify();
+                        }}
+                        className="w-full bg-[#16181C] border border-[#2D3139] rounded px-2 py-1 text-white text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* 5. Numeric Scale Multiplier (X, Y, Z) */}
+                <div className="bg-[#0F1113] p-3 rounded-lg border border-[#2D3139] space-y-2">
+                  <div className="flex items-center justify-between text-[#8E9299]">
+                    <span className="font-bold uppercase tracking-wider text-[10px] flex items-center space-x-1">
+                      <Maximize2 className="w-3.5 h-3.5 text-purple-400" />
+                      <span>Facteur d'Échelle</span>
+                    </span>
+                    <button
+                      onClick={() => {
+                        meshObj.scale.set(1, 1, 1);
+                        meshObj.updateMatrixWorld(true);
+                        editorStore.notify();
+                      }}
+                      className="text-[10px] text-purple-400 hover:underline"
+                    >
+                      Reset (1.0)
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 font-mono">
+                    <div className="space-y-1">
+                      <span className="text-[#8E9299] text-[10px]">Scale X</span>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={Number(scl.x.toFixed(3))}
+                        onChange={e => {
+                          meshObj.scale.x = parseFloat(e.target.value) || 0.001;
+                          meshObj.updateMatrixWorld(true);
+                          editorStore.notify();
+                        }}
+                        className="w-full bg-[#16181C] border border-[#2D3139] rounded px-2 py-1 text-white text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[#8E9299] text-[10px]">Scale Y</span>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={Number(scl.y.toFixed(3))}
+                        onChange={e => {
+                          meshObj.scale.y = parseFloat(e.target.value) || 0.001;
+                          meshObj.updateMatrixWorld(true);
+                          editorStore.notify();
+                        }}
+                        className="w-full bg-[#16181C] border border-[#2D3139] rounded px-2 py-1 text-white text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[#8E9299] text-[10px]">Scale Z</span>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={Number(scl.z.toFixed(3))}
+                        onChange={e => {
+                          meshObj.scale.z = parseFloat(e.target.value) || 0.001;
+                          meshObj.updateMatrixWorld(true);
+                          editorStore.notify();
+                        }}
+                        className="w-full bg-[#16181C] border border-[#2D3139] rounded px-2 py-1 text-white text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
         </div>
       )}
 

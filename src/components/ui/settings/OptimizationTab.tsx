@@ -25,6 +25,7 @@ import {
   Sliders,
   ShieldAlert,
   Activity,
+  Box,
 } from 'lucide-react';
 import { OptimizationSettings, RendererEngineType, FpsLimitOption } from '../../../types/settings';
 import { SettingsSwitch } from './SettingsSwitch';
@@ -358,6 +359,26 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
             badge={settings.aggressiveFrustumCulling ? t.optimization.frustumActive : t.optimization.disabled}
             badgeColor={settings.aggressiveFrustumCulling ? 'emerald' : 'slate'}
             icon={<EyeOff className="w-4 h-4" />}
+          />
+
+          {/* 5. Collisions physiques actives pendant la simulation */}
+          <SettingsSwitch
+            id="opt-simulation-collisions"
+            checked={settings.simulationCollisionsEnabled}
+            onChange={checked => {
+              const updated = { ...settings, simulationCollisionsEnabled: checked };
+              onChange({ simulationCollisionsEnabled: checked });
+              threeOptimizationEngine.applySettings(
+                updated,
+                editorStore.activeThreeScene,
+                editorStore.activeThreeRenderer
+              );
+            }}
+            title={t.optimization.collisionsTitle}
+            description={t.optimization.collisionsDesc}
+            badge={settings.simulationCollisionsEnabled ? t.optimization.collisionsActive : t.optimization.disabled}
+            badgeColor={settings.simulationCollisionsEnabled ? 'blue' : 'slate'}
+            icon={<Box className="w-4 h-4" />}
           />
         </div>
       </div>

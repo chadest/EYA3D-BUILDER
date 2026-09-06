@@ -18,7 +18,7 @@ export class MeshExplosionEngine {
     targetObj: SceneObject,
     options: ExplosionOptions = {}
   ): string[] {
-    if (!targetObj.mesh) return [];
+    if (!targetObj.mesh || !targetObj.mesh.geometry || typeof targetObj.mesh.geometry.clone !== 'function') return [];
 
     const blastForce = options.blastForce ?? editorStore.simulationExplosionForce ?? 40.0;
     const chunkCount = options.chunkCount ?? editorStore.simulationExplosionChunks ?? 16;
@@ -26,8 +26,9 @@ export class MeshExplosionEngine {
     const blastRadius = options.blastRadius ?? 4.0;
 
     const sourceMesh = targetObj.mesh;
-    const sourceGeom = sourceMesh.geometry.clone().toNonIndexed();
+    const sourceGeom = sourceMesh.geometry.index ? sourceMesh.geometry.toNonIndexed() : sourceMesh.geometry.clone();
     const sourcePosAttr = sourceGeom.attributes.position;
+    if (!sourcePosAttr) return [];
     const sourceNormAttr = sourceGeom.attributes.normal;
     const sourceUvAttr = sourceGeom.attributes.uv;
 

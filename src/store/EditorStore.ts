@@ -12,6 +12,10 @@ import {
   ModifierConfig,
   SculptMode,
   CSGOperation,
+  MeasurementItem,
+  MeasurementUnit,
+  SnapTargetType,
+  MeasureSnapSettings,
 } from '../types/editor';
 import {
   DrawToolType,
@@ -137,6 +141,25 @@ class EditorStore {
   public activeThreeScene: THREE.Scene | null = null;
   public activeThreeCamera: THREE.PerspectiveCamera | null = null;
   public activeThreeRenderer: THREE.WebGLRenderer | null = null;
+
+  // 3D Measurement & Dimension Tool State
+  public isMeasureToolActive: boolean = false;
+  public measurementUnit: MeasurementUnit = 'm';
+  public measurements: MeasurementItem[] = [];
+  public currentMeasuringStart: THREE.Vector3 | null = null;
+  public currentMeasuringEnd: THREE.Vector3 | null = null;
+  public currentMeasuringHoverPos: THREE.Vector3 | null = null;
+  public currentMeasuringSnapType: SnapTargetType = 'none';
+  public currentMeasuringSnapObjName: string | null = null;
+  public measureSnapSettings: MeasureSnapSettings = {
+    snapToVertices: true,
+    snapToEdges: true,
+    snapToFaces: true,
+    snapToGrid: true,
+  };
+  public selectedMeasurementId: string | null = null;
+  public isMeasurementPanelOpen: boolean = false;
+
 
   // Anti-Freeze Emergency Rescue State & Visual Alert
   public antiFreezeAlert: {
@@ -336,6 +359,12 @@ class EditorStore {
   public simulationExplosionForce: number = 40.0;
   public simulationExplosionChunks: number = 16;
   public isPhysicsGrabbing: boolean = false;
+  public simulationCollisionsEnabled: boolean = true;
+
+  public setSimulationCollisionsEnabled(enabled: boolean): void {
+    this.simulationCollisionsEnabled = enabled;
+    this.notify();
+  }
 
   public setSimulationInteractionMode(mode: 'none' | 'grab' | 'push' | 'explode'): void {
     this.simulationInteractionMode = mode;
@@ -374,6 +403,79 @@ class EditorStore {
         epicenter: epicenter || selObj.mesh!.position.clone()
       });
     });
+  }
+
+  // Rigging, Skeletons & Origin Pivot State
+  public activeRigPreset: 'humanoid' | 'quadruped' | 'bird' | 'fish_tail' | 'simple_arm' = 'humanoid';
+  public selectedBoneName: string | null = null;
+  public isPoseMode: boolean = false;
+  public showSkeletonBones: boolean = true;
+  public showBoneXRay: boolean = true;
+
+  public setActiveRigPreset(preset: 'humanoid' | 'quadruped' | 'bird' | 'fish_tail' | 'simple_arm'): void {
+    this.activeRigPreset = preset;
+    this.notify();
+  }
+
+  public setSelectedBoneName(boneName: string | null): void {
+    this.selectedBoneName = boneName;
+    this.notify();
+  }
+
+  public togglePoseMode(): void {
+    this.isPoseMode = !this.isPoseMode;
+    this.notify();
+  }
+
+  public toggleSkeletonBones(): void {
+    this.showSkeletonBones = !this.showSkeletonBones;
+    this.notify();
+  }
+
+  public toggleBoneXRay(): void {
+    this.showBoneXRay = !this.showBoneXRay;
+    this.notify();
+  }
+
+  public setOriginPreset(preset: 'bottom_center' | 'center' | 'top_center' | 'min_corner' | 'max_corner'): void {
+    const selObj = this.getSelectedObject();
+    if (!selObj || !selObj.mesh) return;
+    import('../core/rigging/RiggingEngine').then(({ riggingEngine }) => {
+      riggingEngine.setOriginPreset(selObj.mesh!, preset);
+    });
+  }
+
+  public applyAutoRig(preset?: 'humanoid' | 'quadruped' | 'bird' | 'fish_tail' | 'simple_arm'): void {
+    const selObj = this.getSelectedObject();
+    if (!selObj || !selObj.mesh) {
+      alert('Veuillez sélectionner un objet pour appliquer le squelette et le rigging.');
+      return;
+    }
+    const targetPreset = preset || this.activeRigPreset;
+    import('../core/rigging/RiggingEngine').then(({ riggingEngine }) => {
+      const { rootBone, bones, skeleton } = riggingEngine.createSkeletonFromPreset(targetPreset, selObj.mesh);
+      const skinnedMesh = riggingEngine.autoSkinMesh(selObj.mesh!, rootBone, skeleton);
+      
+      // Update scene object with the new SkinnedMesh
+      if (this.activeThreeScene && selObj.mesh) {
+        this.activeThreeScene.remove(selObj.mesh);
+        this.activeThreeScene.add(skinnedMesh);
+      }
+      selObj.mesh = skinnedMesh;
+      this.isPoseMode = true;
+      this.notify();
+    });
+  }
+
+  public resetRigPose(): void {
+    const selObj = this.getSelectedObject();
+    if (!selObj || !selObj.mesh) return;
+    if (selObj.mesh instanceof THREE.SkinnedMesh && selObj.mesh.skeleton) {
+      const skinned = selObj.mesh;
+      import('../core/rigging/RiggingEngine').then(({ riggingEngine }) => {
+        riggingEngine.resetToRestPose(skinned.skeleton);
+      });
+    }
   }
 
   public togglePhysics(): void {
@@ -1035,14 +1137,18 @@ class EditorStore {
     if (!obj || !obj.mesh || !obj.geometryBackup) return;
 
     const newGeom = processModifierStack(obj.geometryBackup, obj.modifiers);
-    obj.mesh.geometry.dispose();
-    obj.mesh.geometry = newGeom;
+    if (obj.mesh.geometry) {
+      obj.mesh.geometry.dispose();
+      obj.mesh.geometry = newGeom;
+    }
   }
 
   public pushGeometryState(objectId: string): void {
     const obj = this.objects.find(o => o.id === objectId);
     if (!obj || !obj.mesh) return;
     const targetGeom = (this.mode === 'edit' && obj.baseGeometry) ? obj.baseGeometry : obj.mesh.geometry;
+    if (!targetGeom || typeof targetGeom.clone !== 'function') return;
+
     this.pendingGeometrySnapshots.set(objectId, targetGeom.clone());
     
     const ver = sculptingEngine.getVersioning(targetGeom);
@@ -1054,11 +1160,13 @@ class EditorStore {
     if (!success) {
       const selObj = this.getSelectedObject();
       if (selObj && selObj.mesh) {
-        const targetGeom = (this.mode === 'edit' && selObj.baseGeometry) ? selObj.baseGeometry : selObj.mesh.geometry;
-        const ver = sculptingEngine.getVersioning(targetGeom);
-        if (ver.undo(targetGeom)) {
-          this.updateGeometryBackup(selObj.id, targetGeom, true);
-          return true;
+        const targetGeom = (this.mode === 'edit' && selObj.baseGeometry) ? selObj.baseGeometry : (selObj.mesh ? selObj.mesh.geometry : null);
+        if (targetGeom) {
+          const ver = sculptingEngine.getVersioning(targetGeom);
+          if (ver.undo(targetGeom)) {
+            this.updateGeometryBackup(selObj.id, targetGeom, true);
+            return true;
+          }
         }
       }
     }
@@ -1070,11 +1178,13 @@ class EditorStore {
     if (!success) {
       const selObj = this.getSelectedObject();
       if (selObj && selObj.mesh) {
-        const targetGeom = (this.mode === 'edit' && selObj.baseGeometry) ? selObj.baseGeometry : selObj.mesh.geometry;
-        const ver = sculptingEngine.getVersioning(targetGeom);
-        if (ver.redo(targetGeom)) {
-          this.updateGeometryBackup(selObj.id, targetGeom, true);
-          return true;
+        const targetGeom = (this.mode === 'edit' && selObj.baseGeometry) ? selObj.baseGeometry : (selObj.mesh ? selObj.mesh.geometry : null);
+        if (targetGeom) {
+          const ver = sculptingEngine.getVersioning(targetGeom);
+          if (ver.redo(targetGeom)) {
+            this.updateGeometryBackup(selObj.id, targetGeom, true);
+            return true;
+          }
         }
       }
     }
@@ -1101,7 +1211,10 @@ class EditorStore {
     const obj = this.objects.find(o => o.id === objectId);
     if (!obj || !obj.mesh) return;
 
-    const prevGeom = this.pendingGeometrySnapshots.get(objectId) || obj.baseGeometry?.clone() || obj.geometryBackup?.clone() || obj.mesh.geometry.clone();
+    const prevGeom = this.pendingGeometrySnapshots.get(objectId) || 
+      (obj.baseGeometry && typeof obj.baseGeometry.clone === 'function' ? obj.baseGeometry.clone() : null) || 
+      (obj.geometryBackup && typeof obj.geometryBackup.clone === 'function' ? obj.geometryBackup.clone() : null) || 
+      (obj.mesh.geometry && typeof obj.mesh.geometry.clone === 'function' ? obj.mesh.geometry.clone() : new THREE.BufferGeometry());
     
     if (!skipHistory) {
       commandHistory.recordAndExecute(
@@ -1116,7 +1229,7 @@ class EditorStore {
 
     if (obj.modifiers.length > 0) {
       this.reevaluateModifiers(objectId);
-    } else {
+    } else if (obj.mesh.geometry) {
       obj.mesh.geometry.dispose();
       obj.mesh.geometry = newGeometry.clone();
     }
@@ -1218,6 +1331,9 @@ class EditorStore {
           throw new Error(`Objet cible introuvable: ${targetObjectId}`);
         }
         const sourceGeom = obj.baseGeometry || obj.geometryBackup || obj.mesh.geometry;
+        if (!sourceGeom || typeof sourceGeom.getAttribute !== 'function') {
+          throw new Error(`Le maillage de l'objet ${obj.name} n'est pas modifiable ou n'a pas de géométrie valide.`);
+        }
         const posAttr = sourceGeom.getAttribute('position');
         const maxFaces = posAttr ? posAttr.count / 3 : 0;
         if (faceIndex < 0 || faceIndex >= maxFaces) {
@@ -1342,6 +1458,109 @@ class EditorStore {
     }
     this.notify();
   }
+
+  // =========================================================================
+  // 3D MEASUREMENT TOOL ENGINE
+  // =========================================================================
+
+  public setMeasureToolActive(active: boolean): void {
+    this.isMeasureToolActive = active;
+    if (!active) {
+      this.currentMeasuringStart = null;
+      this.currentMeasuringEnd = null;
+      this.currentMeasuringHoverPos = null;
+      this.currentMeasuringSnapType = 'none';
+      this.currentMeasuringSnapObjName = null;
+    } else {
+      this.isMeasurementPanelOpen = true;
+    }
+    this.notify();
+  }
+
+  public toggleMeasureTool(): void {
+    this.setMeasureToolActive(!this.isMeasureToolActive);
+  }
+
+  public setMeasurementUnit(unit: MeasurementUnit): void {
+    this.measurementUnit = unit;
+    this.notify();
+  }
+
+  public updateMeasureSnapSettings(settings: Partial<MeasureSnapSettings>): void {
+    this.measureSnapSettings = { ...this.measureSnapSettings, ...settings };
+    this.notify();
+  }
+
+  public addMeasurement(measurement: MeasurementItem): void {
+    this.measurements.push(measurement);
+    this.selectedMeasurementId = measurement.id;
+    this.notify();
+  }
+
+  public removeMeasurement(id: string): void {
+    this.measurements = this.measurements.filter(m => m.id !== id);
+    if (this.selectedMeasurementId === id) {
+      this.selectedMeasurementId = null;
+    }
+    this.notify();
+  }
+
+  public clearMeasurements(): void {
+    this.measurements = [];
+    this.selectedMeasurementId = null;
+    this.currentMeasuringStart = null;
+    this.currentMeasuringEnd = null;
+    this.currentMeasuringHoverPos = null;
+    this.currentMeasuringSnapType = 'none';
+    this.currentMeasuringSnapObjName = null;
+    this.notify();
+  }
+
+  public selectMeasurement(id: string | null): void {
+    this.selectedMeasurementId = id;
+    this.notify();
+  }
+
+  public setMeasurementPanelOpen(open: boolean): void {
+    this.isMeasurementPanelOpen = open;
+    this.notify();
+  }
+
+  /**
+   * Rescales an object (such as an imported FBX car) to match a real-world measured target dimension.
+   * E.g.: Front to back bumper measured = 2.45m -> scale model to 4.70m standard car length.
+   */
+  public scaleObjectToMeasurement(objectId: string, measuredDistance: number, targetDistance: number): boolean {
+    if (measuredDistance <= 0.0001 || targetDistance <= 0.0001) return false;
+    const obj = this.objects.find(o => o.id === objectId);
+    if (!obj || !obj.mesh) return false;
+
+    const scaleFactor = targetDistance / measuredDistance;
+    
+    // Save undo command
+    const oldScale = obj.mesh.scale.clone();
+    const newScale = obj.mesh.scale.clone().multiplyScalar(scaleFactor);
+    
+    const prevTransform = {
+      position: obj.mesh.position.clone(),
+      rotation: obj.mesh.rotation.clone(),
+      scale: oldScale,
+    };
+    const newTransform = {
+      position: obj.mesh.position.clone(),
+      rotation: obj.mesh.rotation.clone(),
+      scale: newScale,
+    };
+
+    obj.mesh.scale.copy(newScale);
+    obj.mesh.updateMatrixWorld(true);
+
+    this.recordTransformChange(obj.id, prevTransform, newTransform, `Calibration Échelle (${targetDistance.toFixed(2)})`);
+
+    this.notify();
+    return true;
+  }
 }
+
 
 export const editorStore = new EditorStore();

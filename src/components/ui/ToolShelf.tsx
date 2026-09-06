@@ -55,7 +55,16 @@ import {
   Key,
   Flame,
   MousePointer,
+  Bone,
+  PawPrint,
+  User,
+  Feather,
+  Waves,
+  Share2,
+  Upload,
+  Download,
 } from 'lucide-react';
+import { modelIOEngine } from '../../core/io/ModelIOEngine';
 import { motion } from 'motion/react';
 import * as THREE from 'three';
 import { DrawToolType } from '../../types/drawing';
@@ -265,6 +274,7 @@ export const ToolShelf: React.FC = () => {
     { id: 'curve', label: 'Drawing', icon: <Compass className="w-4 h-4" /> },
     { id: 'csg', label: 'Booleans', icon: <Layers className="w-4 h-4" /> },
     { id: 'deform', label: 'Deform', icon: <Maximize2 className="w-4 h-4" /> },
+    { id: 'rigging', label: 'Rigging & Origin', icon: <Bone className="w-4 h-4" /> },
     { id: 'animation', label: 'Animation', icon: <Film className="w-4 h-4" /> },
     { id: 'simulation', label: 'Simulation', icon: <Activity className="w-4 h-4" /> },
   ];
@@ -365,6 +375,27 @@ export const ToolShelf: React.FC = () => {
           </span>
         </button>
 
+        {/* 3D Measurement & Scale Verification Tool Toggle */}
+        <button
+          onClick={() => editorStore.toggleMeasureTool()}
+          className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
+            editorStore.isMeasureToolActive
+              ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-md shadow-emerald-500/25 border border-emerald-400 font-bold'
+              : 'text-[#8E9299] hover:text-white hover:bg-[#2D3139]'
+          }`}
+          title="Outil de Mesure 3D (Touche M) - Cliquer 2 points pour calculer la distance et vérifier l'échelle (ex: voiture FBX)"
+        >
+          <Ruler className={`w-3.5 h-3.5 ${editorStore.isMeasureToolActive ? 'text-white' : 'text-emerald-400'}`} />
+          <span className="text-[11px] font-bold">Mesure</span>
+          <span
+            className={`text-[9px] px-1 py-0.2 rounded-full uppercase font-black ${
+              editorStore.isMeasureToolActive ? 'bg-slate-950 text-emerald-300' : 'bg-[#2D3139] text-[#8E9299]'
+            }`}
+          >
+            {editorStore.isMeasureToolActive ? 'ON' : 'OFF'}
+          </span>
+        </button>
+
         <div className="h-4 w-px bg-[#2D3139] mx-1" />
 
         {/* Preview / Code Tab Switcher (Professional Scripting Environment Toggle) */}
@@ -413,6 +444,40 @@ export const ToolShelf: React.FC = () => {
             title={editorStore.isPrimitivePopupOpen ? "Fermer le menu des solides" : "Ouvrir le menu de création de solides 3D (+)"}
           >
             <Plus className="w-4 h-4" />
+          </button>
+
+          {/* Quick Import 3D File Button */}
+          <button
+            onClick={() => {
+              const input = document.createElement('input');
+              input.type = 'file';
+              input.accept = '.obj,.stl,.fbx';
+              input.onchange = async (e) => {
+                const file = (e.target as HTMLInputElement).files?.[0];
+                if (file) await modelIOEngine.importFile(file);
+              };
+              input.click();
+            }}
+            className="p-1.5 rounded-lg border bg-[#0F1113] border-[#2D3139] text-emerald-400 hover:text-emerald-300 hover:bg-[#1C1E22] hover:border-emerald-500 transition-all flex items-center justify-center"
+            title="Importer un fichier 3D (.OBJ, .STL, .FBX)"
+          >
+            <Upload className="w-4 h-4" />
+          </button>
+
+          {/* Quick Export Button */}
+          <button
+            onClick={() => {
+              const sel = editorStore.getSelectedObject();
+              if (sel && sel.mesh) {
+                modelIOEngine.exportOBJ(sel.mesh, sel.name || 'PolyCraftMesh');
+              } else {
+                modelIOEngine.exportOBJ(undefined, 'PolyCraftScene');
+              }
+            }}
+            className="p-1.5 rounded-lg border bg-[#0F1113] border-[#2D3139] text-sky-400 hover:text-sky-300 hover:bg-[#1C1E22] hover:border-sky-500 transition-all flex items-center justify-center"
+            title="Exporter l'objet sélectionné ou la scène (.OBJ)"
+          >
+            <Download className="w-4 h-4" />
           </button>
         </div>
       )}
@@ -1136,6 +1201,151 @@ export const ToolShelf: React.FC = () => {
               )}
             </>
           )}
+        </div>
+      )}
+      {/* 9. RIGGING & ORIGIN STUDIO TOOLBAR */}
+      {mode === 'rigging' && (
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Section A: Origin / Pivot Point Controls */}
+          <div className="flex items-center space-x-1 bg-[#0F1113] p-1 rounded-full border border-[#2D3139]">
+            <span className="text-[11px] font-bold text-slate-400 px-2 flex items-center space-x-1">
+              <Crosshair className="w-3.5 h-3.5 text-sky-400" />
+              <span>Origine :</span>
+            </span>
+            <button
+              onClick={() => editorStore.setOriginPreset('bottom_center')}
+              className="px-2.5 py-1 rounded-full text-xs font-semibold text-slate-300 hover:text-white hover:bg-[#2D3139] transition-all cursor-pointer"
+              title="Aligner l'origine au sol / base (X-milieu, Y-min, Z-milieu) - Recommandé pour personnages et animaux"
+            >
+              Base (Sol)
+            </button>
+            <button
+              onClick={() => editorStore.setOriginPreset('center')}
+              className="px-2.5 py-1 rounded-full text-xs font-semibold text-slate-300 hover:text-white hover:bg-[#2D3139] transition-all cursor-pointer"
+              title="Aligner l'origine au centre géométrique / centre de masse"
+            >
+              Centre
+            </button>
+            <button
+              onClick={() => editorStore.setOriginPreset('top_center')}
+              className="px-2.5 py-1 rounded-full text-xs font-semibold text-slate-300 hover:text-white hover:bg-[#2D3139] transition-all cursor-pointer"
+              title="Aligner l'origine au sommet (X-milieu, Y-max, Z-milieu)"
+            >
+              Haut
+            </button>
+          </div>
+
+          <div className="h-4 w-px bg-[#2D3139]" />
+
+          {/* Section B: Skeletons & Presets */}
+          <div className="flex items-center space-x-1 bg-[#0F1113] p-1 rounded-full border border-[#2D3139]">
+            <span className="text-[11px] font-bold text-slate-400 px-2 flex items-center space-x-1">
+              <Bone className="w-3.5 h-3.5 text-amber-400" />
+              <span>Squelette :</span>
+            </span>
+            <button
+              onClick={() => editorStore.setActiveRigPreset('humanoid')}
+              className={`flex items-center space-x-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                editorStore.activeRigPreset === 'humanoid'
+                  ? 'bg-amber-500/25 text-amber-300 border border-amber-400/50 shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+              title="Rig Bipède Humanoïde (Tête, Colonne, Bras, Jambes, Mains, Pieds)"
+            >
+              <User className="w-3.5 h-3.5" />
+              <span>Humanoïde</span>
+            </button>
+            <button
+              onClick={() => editorStore.setActiveRigPreset('quadruped')}
+              className={`flex items-center space-x-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                editorStore.activeRigPreset === 'quadruped'
+                  ? 'bg-amber-500/25 text-amber-300 border border-amber-400/50 shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+              title="Rig Quadrupède Animal (Chien, Chat, Cheval avec 4 pattes et queue)"
+            >
+              <PawPrint className="w-3.5 h-3.5" />
+              <span>Quadrupède</span>
+            </button>
+            <button
+              onClick={() => editorStore.setActiveRigPreset('bird')}
+              className={`flex items-center space-x-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                editorStore.activeRigPreset === 'bird'
+                  ? 'bg-amber-500/25 text-amber-300 border border-amber-400/50 shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+              title="Rig Animal Ailé / Oiseau (Ailes articulées, Serres, Tête, Queue)"
+            >
+              <Feather className="w-3.5 h-3.5" />
+              <span>Oiseau</span>
+            </button>
+            <button
+              onClick={() => editorStore.setActiveRigPreset('fish_tail')}
+              className={`flex items-center space-x-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                editorStore.activeRigPreset === 'fish_tail'
+                  ? 'bg-amber-500/25 text-amber-300 border border-amber-400/50 shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+              title="Rig Créature Aquatique / Serpent / Queue (Chaîne multi-segments)"
+            >
+              <Waves className="w-3.5 h-3.5" />
+              <span>Serpent / Queue</span>
+            </button>
+          </div>
+
+          {/* Section C: Auto-Skinning & Pose Actions */}
+          <div className="flex items-center space-x-1.5">
+            <motion.button
+              whileHover={{ scale: 1.04 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => editorStore.applyAutoRig()}
+              className="flex items-center space-x-1.5 px-3 py-1 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 rounded-full text-xs font-bold shadow-md shadow-amber-500/20 transition-all cursor-pointer"
+              title="Générer le squelette ajusté au solide sélectionné et calculer automatiquement les poids de peau (Auto-Skinning)"
+            >
+              <Zap className="w-3.5 h-3.5 fill-current" />
+              <span>Générer & Auto-Skin</span>
+            </motion.button>
+
+            <button
+              onClick={() => editorStore.togglePoseMode()}
+              className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                editorStore.isPoseMode
+                  ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-400/60 shadow-sm shadow-emerald-500/20'
+                  : 'bg-[#0F1113] text-slate-400 hover:text-white border border-[#2D3139]'
+              }`}
+              title="Activer le mode Pose pour sélectionner et faire pivoter les os individuellement"
+            >
+              <Target className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Mode Pose</span>
+              <span className={`text-[9px] px-1 py-0.2 rounded-full font-black ${editorStore.isPoseMode ? 'bg-emerald-950 text-emerald-400' : 'bg-[#2D3139] text-slate-400'}`}>
+                {editorStore.isPoseMode ? 'ON' : 'OFF'}
+              </span>
+            </button>
+
+            {editorStore.isPoseMode && (
+              <button
+                onClick={() => editorStore.resetRigPose()}
+                className="flex items-center space-x-1 px-2.5 py-1 bg-[#0F1113] hover:bg-[#2D3139] text-slate-300 hover:text-white rounded-full text-xs font-semibold border border-[#2D3139] transition-all cursor-pointer"
+                title="Rétablir la pose neutre (T-Pose / Rest Pose)"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-sky-400" />
+                <span>Reset Pose (T-Pose)</span>
+              </button>
+            )}
+
+            <button
+              onClick={() => editorStore.toggleBoneXRay()}
+              className={`flex items-center space-x-1 px-2 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                editorStore.showBoneXRay
+                  ? 'bg-sky-500/20 text-sky-300 border border-sky-400/50'
+                  : 'bg-[#0F1113] text-slate-400 hover:text-white border border-[#2D3139]'
+              }`}
+              title="Afficher les os du squelette en transparence à travers le maillage"
+            >
+              <Eye className="w-3.5 h-3.5" />
+              <span>X-Ray Os</span>
+            </button>
+          </div>
         </div>
       )}
     </div>

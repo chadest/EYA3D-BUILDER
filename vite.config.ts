@@ -6,6 +6,7 @@ import {defineConfig} from 'vite';
 export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss()],
+    base: 'eya3D',
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

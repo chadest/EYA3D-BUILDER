@@ -7,11 +7,11 @@
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
-    "build:static": "vite build",
+    "build:static": "vite build --base=/eya3D/",
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist server.js",
     "predeploy": "npm run build:static",
-    "deploy": "npx gh-pages -d dist",
+    "deploy": "npm run build:static && npx gh-pages -d dist",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

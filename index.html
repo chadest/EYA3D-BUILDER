@@ -13,11 +13,30 @@
         if (redirect && redirect !== location.href) {
           history.replaceState(null, null, redirect);
         }
-        // Normalize trailing slash on GitHub Pages directory so relative paths './assets/...' resolve correctly
-        if (location.pathname && !location.pathname.endsWith('/') && !location.pathname.includes('.')) {
-          location.replace(location.pathname + '/' + location.search + location.hash);
-        }
       })();
+
+      // Catch global network/script errors on asset loading
+      window.addEventListener('error', function (e) {
+        if (e.message && (e.message.indexOf('ResizeObserver') !== -1 || e.message.indexOf('websocket') !== -1)) return;
+        var loader = document.getElementById('app-loader-container');
+        if (loader) {
+          var details = e.message || (e.target && (e.target.src || e.target.href)) || 'Erreur de chargement';
+          loader.innerHTML = '<div style="max-width:440px;padding:24px;background:#161920;border:1px solid #ef4444;border-radius:12px;color:#f87171;text-align:center;box-shadow:0 20px 25px -5px rgba(0,0,0,0.5);margin:16px;">' +
+            '<h3 style="margin:0 0 8px;font-size:15px;font-weight:700;color:#fff;">Erreur de chargement des ressources</h3>' +
+            '<p style="font-size:12px;color:#94a3b8;margin:0 0 14px;line-height:1.5;">Le navigateur n\\\'a pas pu récupérer les composants graphiques du studio.</p>' +
+            '<div style="background:#090a0c;padding:10px;border-radius:6px;font-size:11px;color:#fca5a5;text-align:left;overflow:auto;max-height:80px;margin-bottom:16px;word-break:break-all;font-family:monospace;">' + details + '</div>' +
+            '<button onclick="location.reload()" style="background:#2563eb;color:#fff;border:none;padding:8px 18px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">Réessayer</button>' +
+            '</div>';
+        }
+      }, true);
+
+      // Timeout fallback: if after 10s React hasn't replaced the loader, show diagnostic
+      setTimeout(function () {
+        var timeoutNotice = document.getElementById('app-loader-timeout');
+        if (timeoutNotice) {
+          timeoutNotice.style.display = 'block';
+        }
+      }, 10000);
     </script>
     <style>
       html, body {
@@ -67,9 +86,13 @@
   </head>
   <body>
     <div id="root">
-      <div class="app-loader">
+      <div id="app-loader-container" class="app-loader">
         <div class="app-loader-spinner"></div>
         <div class="app-loader-text">Initialisation Eya3D...</div>
+        <div id="app-loader-timeout" style="display:none;margin-top:20px;text-align:center;max-width:320px;padding:0 16px;">
+          <p style="font-size:12px;color:#94a3b8;margin-bottom:12px;line-height:1.4;">Le chargement prend plus de temps que prévu.</p>
+          <button onclick="location.reload()" style="background:#2563eb;color:#fff;border:none;padding:7px 16px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">Rafraîchir la page</button>
+        </div>
       </div>
     </div>
     <script type="module" src="/src/main.tsx"></script>

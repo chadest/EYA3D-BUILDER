@@ -5,8 +5,9 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
+    // Relative base path ensures assets load correctly on GitHub Pages (e.g. https://<user>.github.io/<repo>/)
+    base: process.env.BASE_URL || './',
     plugins: [react(), tailwindcss()],
-    base: '/eya3D',
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

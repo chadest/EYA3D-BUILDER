@@ -27,6 +27,7 @@
 9. [Interface, Thèmes & Raccourcis Clavier](#interface-thèmes--raccourcis-clavier)
 10. [Architecture Technique & Dépendances](#architecture-technique--dépendances)
 11. [Installation & Lancement](#installation--lancement)
+12. [Déploiement Statique sur GitHub Pages](#déploiement-statique-sur-github-pages)
 
 ---
 
@@ -331,6 +332,38 @@ npm run build
 ### 5. Démarrage en production
 ```bash
 npm start
+```
+
+---
+
+## Déploiement Statique sur GitHub Pages
+
+L'ensemble du moteur de modélisation 3D, de CAO 2D, de sculpture, de rendu PBR et de simulation physique s'exécute à 100% côté client dans le navigateur WebGL. L'application peut donc être hébergée comme un site statique gratuit et performant sur **GitHub Pages**.
+
+### 1. Configuration automatique (Recommandée via GitHub Actions)
+Un workflow GitHub Actions est prêt à l'emploi dans `.github/workflows/deploy.yml`.
+
+1. Poussez votre code sur votre dépôt GitHub :
+   ```bash
+   git add .
+   git commit -m "feat: configuration déploiement statique GitHub Pages"
+   git push origin main
+   ```
+2. Rendez-vous sur votre dépôt GitHub dans le navigateur.
+3. Cliquez sur **Settings** > **Pages** (dans le menu de gauche).
+4. Dans la section **Build and deployment** :
+   - Sous **Source**, sélectionnez **GitHub Actions**.
+5. C'est tout ! Dès chaque nouveau push sur la branche `main` (ou `master`), le workflow compile automatiquement le bundle statique (`npm run build:static`) et déploie le site sur :
+   `https://<votre-nom-utilisateur>.github.io/<nom-du-depot>/`
+
+### 2. Déploiement manuel local (Optionnel)
+Si vous préférez générer vous-même les fichiers statiques sans GitHub Actions :
+```bash
+# Compiler le site statique dans le dossier dist/
+npm run build:static
+
+# Déployer dist/ sur la branche gh-pages (avec npx gh-pages par exemple)
+npx gh-pages -d dist
 ```
 
 ---

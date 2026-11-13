@@ -33,7 +33,7 @@ import { CameraPreviewWidget } from '../ui/CameraPreviewWidget';
 import { TransformToolbar } from '../ui/TransformToolbar';
 import { NavigationToolbar } from '../ui/NavigationToolbar';
 import { AIChatButton } from '../ui/AIChatButton';
-import { RealisticRenderPipeline } from '../../core/rendering/renderPipeline';
+import { RealisticRenderPipeline, detectSoftwareWebGL } from '../../core/rendering/renderPipeline';
 import { StudioCyclorama } from './StudioCyclorama';
 import { physicsEngine } from '../../core/physics/PhysicsEngine';
 import { threeOptimizationEngine } from '../../core/optimization/threeOptimizationEngine';
@@ -1397,11 +1397,17 @@ export const Viewport3D: React.FC = () => {
     cameraRef.current = camera;
     editorStore.activeThreeCamera = camera;
 
-    // 3. RENDERER SETUP
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    // 3. RENDERER SETUP (Hardware GPU vs Software WebGL Guard)
+    const isSoftwareGl = detectSoftwareWebGL();
+    const renderer = new THREE.WebGLRenderer({
+      antialias: !isSoftwareGl,
+      alpha: false,
+      powerPreference: 'high-performance',
+    });
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true;
+    renderer.setPixelRatio(isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.shadowMap.enabled = !isSoftwareGl;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.1;
@@ -1576,9 +1582,9 @@ export const Viewport3D: React.FC = () => {
     scene.add(boneSphereGroupRef.current);
     scene.add(measurementGroupRef.current);
 
-    // Initialize Realistic Render Pipeline
+    // Initialize Realistic Render Pipeline (with PMREM Studio RoomEnvironment)
     const renderPipeline = new RealisticRenderPipeline();
-    renderPipeline.init(renderer, scene, camera);
+    renderPipeline.init(renderer, scene, camera, isSoftwareGl);
     renderPipelineRef.current = renderPipeline;
 
     // Add initial cube primitive if empty
@@ -1675,8 +1681,8 @@ export const Viewport3D: React.FC = () => {
       if (rendererRef.current && sceneRef.current) {
         const isRender = editorStore.isRenderMode;
         const optSettings = threeOptimizationEngine.getSettings();
-        rendererRef.current.shadowMap.enabled = isRender;
-        rendererRef.current.shadowMap.autoUpdate = isRender && !optSettings.ecoStaticShadows;
+        rendererRef.current.shadowMap.enabled = isRender && !isSoftwareGl;
+        rendererRef.current.shadowMap.autoUpdate = isRender && !isSoftwareGl && !optSettings.ecoStaticShadows;
         
         const workLights = (sceneRef.current as any).workLightGroup;
         if (workLights) {
@@ -2320,6 +2326,13 @@ export const Viewport3D: React.FC = () => {
         scene.remove(planeRef.current);
         planeRef.current = null;
       }
+      if (renderPipelineRef.current) {
+        renderPipelineRef.current.dispose();
+        renderPipelineRef.current = null;
+      }
+      controls.dispose();
+      transformControls.dispose();
+      renderer.dispose();
       editorStore.activeThreeScene = null;
       editorStore.activeThreeCamera = null;
       editorStore.activeThreeRenderer = null;

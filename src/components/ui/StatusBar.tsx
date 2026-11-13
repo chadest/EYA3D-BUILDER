@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Info, Sparkles, Activity } from 'lucide-react';
+import { Info, Activity } from 'lucide-react';
 import { editorStore } from '../../store/EditorStore';
 
 export const StatusBar: React.FC = () => {

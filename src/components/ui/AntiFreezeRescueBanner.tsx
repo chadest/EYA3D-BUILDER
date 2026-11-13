@@ -8,7 +8,6 @@
 import React from 'react';
 import {
   ShieldAlert,
-  Sparkles,
   CheckCircle2,
   X,
   RotateCcw,

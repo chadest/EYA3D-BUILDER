@@ -5,7 +5,7 @@
  */
 
 import React from 'react';
-import { Moon, Sun, Sparkles, Palette, Monitor, Check } from 'lucide-react';
+import { Moon, Sun, MoonStar, Palette, Monitor, Check } from 'lucide-react';
 import { ThemeSettings, ThemeStyle } from '../../../types/settings';
 import { SettingsSwitch } from './SettingsSwitch';
 import { editorStore } from '../../../store/EditorStore';
@@ -41,7 +41,7 @@ export const ThemesTab: React.FC<ThemesTabProps> = ({ settings, onChange }) => {
       id: 'night',
       title: t.themes.nightTitle,
       description: t.themes.nightDesc,
-      icon: <Sparkles className="w-5 h-5 text-sky-400" />,
+      icon: <MoonStar className="w-5 h-5 text-sky-400" />,
       previewBg: 'bg-[#07090E]',
       previewGrid: 'border-[#1E2638]',
       previewAccent: 'bg-sky-500',

@@ -8,7 +8,7 @@ import React, { useState, useEffect } from 'react';
 import * as THREE from 'three';
 import { editorStore } from '../../store/EditorStore';
 import { formatDistance } from '../../core/measurement/measurementUtils';
-import { Trash2, Copy, Check, Crosshair, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
+import { Trash2, Copy, Check, Crosshair, Ruler, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface MeasurementViewportOverlayProps {
   cameraRef: React.RefObject<THREE.PerspectiveCamera | null>;
@@ -221,7 +221,7 @@ export const MeasurementViewportOverlay: React.FC<MeasurementViewportOverlayProp
               }}
               className="absolute bg-emerald-500 text-slate-950 font-mono font-extrabold text-xs px-3 py-1 rounded-full shadow-2xl border border-emerald-300 flex items-center space-x-1.5 scale-110"
             >
-              <Sparkles className="w-3.5 h-3.5" />
+              <Ruler className="w-3.5 h-3.5" />
               <span>{formatDistance(liveDistance, unit)}</span>
             </div>
           )}

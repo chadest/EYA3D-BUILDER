@@ -25,7 +25,7 @@ import {
   RotateCw,
   Trash2,
   Crosshair,
-  Sparkles,
+  CheckCircle2,
   Layers,
   ChevronDown,
   Info,
@@ -208,7 +208,7 @@ export const DrawingToolbar: React.FC = () => {
         {/* Closed Profile Indicator Badge */}
         {closedProfilesCount > 0 ? (
           <div className="flex items-center space-x-1 px-2 py-1 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-lg text-xs font-bold animate-pulse">
-            <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
             <span className="text-[10px]">{closedProfilesCount} Profil{closedProfilesCount > 1 ? 's' : ''} Fermé{closedProfilesCount > 1 ? 's' : ''}</span>
           </div>
         ) : entitiesCount > 0 ? (

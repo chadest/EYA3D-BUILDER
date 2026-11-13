@@ -24,7 +24,7 @@ import {
   Grid,
   Sun,
   Moon,
-  Sparkles,
+  MoonStar,
   Settings as SettingsIcon,
 } from 'lucide-react';
 import * as THREE from 'three';
@@ -458,7 +458,7 @@ export const HeaderBar: React.FC = () => {
           } (Cliquer pour changer)`}
         >
           {editorStore.themeMode === 'dark' && <Moon className="w-3.5 h-3.5 text-indigo-400" />}
-          {editorStore.themeMode === 'night' && <Sparkles className="w-3.5 h-3.5 text-sky-400" />}
+          {editorStore.themeMode === 'night' && <MoonStar className="w-3.5 h-3.5 text-sky-400" />}
           {editorStore.themeMode === 'light' && <Sun className="w-3.5 h-3.5 text-amber-500" />}
         </button>
 

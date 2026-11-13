@@ -19,7 +19,7 @@ import {
   ChevronUp,
   Info,
   Scale,
-  Sparkles,
+  SlidersHorizontal,
   Layers,
   HelpCircle,
   Crosshair
@@ -421,7 +421,7 @@ export const MeasurementPanel: React.FC = () => {
                       onClick={() => setShowQuickPresets(!showQuickPresets)}
                       className="text-[10px] text-amber-400 hover:text-amber-300 flex items-center space-x-0.5"
                     >
-                      <Sparkles className="w-3 h-3" />
+                      <SlidersHorizontal className="w-3 h-3" />
                       <span>Gabarits types</span>
                     </button>
                   </div>

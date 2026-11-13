@@ -14,7 +14,7 @@ import {
   Layers,
   Clock,
   Info,
-  Sparkles,
+  Aperture,
   Trash2,
   CheckCircle2,
   RefreshCw,
@@ -338,7 +338,7 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
             description={t.optimization.antialiasDesc}
             badge={settings.hardwareAntialias ? t.optimization.smoothingActive : t.optimization.rawGain}
             badgeColor={settings.hardwareAntialias ? 'blue' : 'emerald'}
-            icon={<Sparkles className="w-4 h-4" />}
+            icon={<Aperture className="w-4 h-4" />}
           />
 
           {/* 4. Masquage hors-champ agressif (Frustum Culling) */}
@@ -544,7 +544,7 @@ export const OptimizationTab: React.FC<OptimizationTabProps> = ({ settings, onCh
           <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-lg border bg-[#121418] border-[#242830] hover:border-[#323844] transition-all duration-200 gap-3">
             <div className="flex items-start space-x-3 pr-2">
               <div className="p-2 rounded-md mt-0.5 bg-[#1E222A] text-purple-400">
-                <Sparkles className="w-4 h-4" />
+                <Cpu className="w-4 h-4" />
               </div>
               <div className="space-y-1">
                 <div className="flex items-center space-x-2">

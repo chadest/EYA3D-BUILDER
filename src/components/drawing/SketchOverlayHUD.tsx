@@ -9,7 +9,7 @@ import React, { useEffect, useState } from 'react';
 import { editorStore } from '../../store/EditorStore';
 import { CadDrawingEngine } from '../../core/drawing/cadDrawingEngine';
 import { DimensionLabel } from '../../types/drawing';
-import { Sparkles, ArrowRight, CornerUpRight, Magnet, Crosshair, Box } from 'lucide-react';
+import { ArrowUpFromLine, ArrowRight, CornerUpRight, Magnet, Crosshair, Box } from 'lucide-react';
 
 interface SketchOverlayHUDProps {
   cursorScreenPos: { x: number; y: number } | null;
@@ -171,7 +171,7 @@ export const SketchOverlayHUD: React.FC<SketchOverlayHUDProps> = ({
             }`}
             title="Extruder en 3D et basculer automatiquement en vue 3D"
           >
-            <Sparkles className="w-3 h-3" />
+            <ArrowUpFromLine className="w-3 h-3" />
             <span>Extruder 3D</span>
           </button>
         </div>

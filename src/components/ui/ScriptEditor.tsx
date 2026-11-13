@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import Editor from '@monaco-editor/react';
-import { Play, Trash2, Terminal, TerminalSquare, AlertCircle, Sparkles } from 'lucide-react';
+import { Play, Trash2, Terminal, TerminalSquare, AlertCircle, Bot } from 'lucide-react';
 import * as THREE from 'three';
 import { editorStore } from '../../store/EditorStore';
 
@@ -208,7 +208,7 @@ export function ScriptEditor() {
 
       {/* AI Prompt Generation Bar */}
       <div className="bg-[#1a1c21] border-b border-[#2D3139] px-4 py-2 flex items-center gap-2">
-        <Sparkles className="w-3.5 h-3.5 text-blue-400 animate-pulse" />
+        <Bot className="w-3.5 h-3.5 text-blue-400 animate-pulse" />
         <span className="text-[10px] font-bold text-slate-400 uppercase shrink-0">Assistant IA :</span>
         <input
           type="text"

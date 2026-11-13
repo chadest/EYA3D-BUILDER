@@ -16,7 +16,7 @@ import {
   Triangle,
   Magnet,
   X,
-  Sparkles,
+  Shapes,
   MousePointer,
   Hand,
   ToggleLeft,
@@ -86,7 +86,7 @@ export const InteractivePrimitivePopup: React.FC<InteractivePrimitivePopupProps>
         <div className="flex items-center justify-between border-b border-[#2D3139] pb-2.5">
           <div className="flex items-center space-x-2">
             <div className="w-7 h-7 rounded-lg bg-[#4A90E2]/20 border border-[#4A90E2]/40 flex items-center justify-center text-[#4A90E2]">
-              <Sparkles className="w-4 h-4" />
+              <Shapes className="w-4 h-4" />
             </div>
             <div>
               <h3 className="text-xs font-bold text-white tracking-tight">Solides Primitifs</h3>

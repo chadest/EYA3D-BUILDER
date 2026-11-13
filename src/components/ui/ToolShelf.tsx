@@ -13,7 +13,7 @@ import {
   Minimize2,
   BoxSelect,
   Layers,
-  Sparkles,
+  Brush,
   Compass,
   Repeat,
   Copy,
@@ -271,7 +271,7 @@ export const ToolShelf: React.FC = () => {
   const modes: { id: EditorMode; label: string; icon: React.ReactNode }[] = [
     { id: 'object', label: '3D Shapes', icon: <Box className="w-4 h-4" /> },
     { id: 'edit', label: 'Mesh Edit', icon: <Scissors className="w-4 h-4" /> },
-    { id: 'sculpt', label: 'Sculpting', icon: <Sparkles className="w-4 h-4" /> },
+    { id: 'sculpt', label: 'Sculpting', icon: <Brush className="w-4 h-4" /> },
     { id: 'curve', label: 'Drawing', icon: <Compass className="w-4 h-4" /> },
     { id: 'csg', label: 'Booleans', icon: <Layers className="w-4 h-4" /> },
     { id: 'deform', label: 'Deform', icon: <Maximize2 className="w-4 h-4" /> },

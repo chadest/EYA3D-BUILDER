@@ -14,7 +14,6 @@ import {
   RotateCcw,
   Check,
   Cpu,
-  Sparkles,
   SlidersHorizontal,
 } from 'lucide-react';
 import {

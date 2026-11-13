@@ -25,8 +25,8 @@ pub struct EyaRustRenderer {
 #[wasm_bindgen]
 impl EyaRustRenderer {
     /// Initialize WebGPU/WebGL2 surface and PBR render pipeline on an HTMLCanvasElement
-    #[wasm_bindgen(constructor)]
-    pub async fn new(canvas_id: &str) -> Result<EyaRustRenderer, JsValue> {
+    #[wasm_bindgen]
+    pub async fn create(canvas_id: &str) -> Result<EyaRustRenderer, JsValue> {
         console_error_panic_hook::set_once();
 
         let window = web_sys::window().ok_or_else(|| JsValue::from_str("Missing window"))?;
@@ -346,6 +346,7 @@ impl EyaRustRenderer {
                 label: Some("eya3d_main_render_pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
+                    depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(self.clear_color),

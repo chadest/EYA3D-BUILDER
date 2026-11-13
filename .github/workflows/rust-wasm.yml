@@ -1,0 +1,66 @@
+name: Build Rust/WASM 3D Rendering Core
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'rust-renderer/**'
+      - 'scripts/build-rust-wasm.sh'
+      - '.github/workflows/rust-wasm.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'rust-renderer/**'
+      - 'scripts/build-rust-wasm.sh'
+  workflow_dispatch:
+
+jobs:
+  build-rust-wasm:
+    name: Compile Rust/wgpu Core to WebAssembly
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain (stable + wasm32)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Cargo & Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust-renderer
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: 'latest'
+
+      - name: Compile Rust 3D Renderer to public/wasm
+        run: bash scripts/build-rust-wasm.sh
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install npm dependencies
+        run: npm ci || npm install
+
+      - name: Build static web bundle (including WASM)
+        run: npm run build:static
+
+      - name: Upload compiled WASM & dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: eya3d-rust-wasm-bundle
+          path: |
+            public/wasm/
+            dist/
+          retention-days: 30

@@ -65,8 +65,8 @@ export class RustWasmRenderBridge {
       if (typeof wasmMod.default === 'function') {
         await wasmMod.default();
       }
-      if (typeof wasmMod.EyaRustRenderer === 'function') {
-        this.instance = await new wasmMod.EyaRustRenderer(canvasId);
+      if (typeof wasmMod.EyaRustRenderer?.create === 'function') {
+        this.instance = await wasmMod.EyaRustRenderer.create(canvasId);
         this.initialized = true;
         return true;
       }

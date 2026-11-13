@@ -1,13 +1,25 @@
 # Eya3D — Studio de Modélisation 3D, CAO & Rendu Professionnel dans le Navigateur
 
-**Eya3D** est une application web complète (SaaS) de création et de modélisation 3D professionnelle s'exécutant directement dans le navigateur. Alliant la puissance d'un logiciel de CAO (DAO 2D/3D), d'un modeleur polygonal avancé, d'un atelier de sculpture numérique et d'un moteur de rendu temps réel, Eya3D offre un environnement fluide, réactif et sans installation.
+![Three.js](https://img.shields.io/badge/Three.js-0.185-000000?style=flat-square&logo=three.js)
+![React](https://img.shields.io/badge/React-19-2563eb?style=flat-square&logo=react)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178c6?style=flat-square&logo=typescript)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4.1-06b6d4?style=flat-square&logo=tailwindcss)
+![Rapier Physics](https://img.shields.io/badge/Rapier-3D_Physics-f59e0b?style=flat-square)
+![Manifold 3D](https://img.shields.io/badge/CSG-Manifold_3D_%2B_BVH-10b981?style=flat-square)
+
+**Eya3D** est une application web complète de création et de modélisation 3D professionnelle s'exécutant directement dans le navigateur. Alliant la puissance d'un logiciel de CAO (DAO 2D/3D), d'un modeleur polygonal avancé, d'un atelier de sculpture numérique et d'un moteur de rendu temps réel, Eya3D offre un environnement fluide, réactif et sans installation.
+
+![Aperçu de l'interface Eya3D](public/assets/aistudio/image_224e7d98.png)
+
+> **Aperçu du studio Eya3D** : Barre de menus et gestion de projet, sélecteur des 10 modes de travail, bascule `Preview / Code`, gizmo d'orientation 3D (`X/Y/Z`), outils de transformation et de navigation flottants, affichage temps réel des coordonnées, inspecteur géométrique (`Face / Edge / Vertex`), système d'aimantation (*Snapping*), outliner hiérarchique et barre de statut métrique (`VERTS`, `TRIS`, `FPS`).
 
 ---
 
 ## Sommaire
 
 1. [Vue d'Ensemble & Points Forts](#vue-densemble--points-forts)
-2. [Modes de Travail Principaux](#modes-de-travail-principaux)
+2. [Organisation de l'Interface](#organisation-de-linterface)
+3. [Modes de Travail Principaux](#modes-de-travail-principaux)
    - [Mode Objet (Object)](#1-mode-objet-object)
    - [Mode Édition Polygonale (Edit)](#2-mode-édition-polygonale-edit)
    - [Mode Sculpture Numérique (Sculpt)](#3-mode-sculpture-numérique-sculpt)
@@ -18,26 +30,36 @@
    - [Mode Squelettes & Rigging (Rigging)](#8-mode-squelettes--rigging-rigging)
    - [Mode Animation & Ligne de Temps (Animation)](#9-mode-animation--ligne-de-temps-animation)
    - [Mode Simulation Physique (Simulation)](#10-mode-simulation-physique-simulation)
-3. [Outils de Primitives & Création Interactive](#outils-de-primitives--création-interactive)
-4. [Moteur de Rendu, Studio & Matériaux PBR](#moteur-de-rendu-studio--matériaux-pbr)
-5. [Outils de Mesure & Inspection Métrique](#outils-de-mesure--inspection-métrique)
-6. [Importation & Exportation (I/O)](#importation--exportation-io)
-7. [Éditeur de Scripts & Assistant IA Gemini](#éditeur-de-scripts--assistant-ia-gemini)
-8. [Performances, Optimisations & Protection Anti-Gel](#performances-optimisations--protection-anti-gel)
-9. [Interface, Thèmes & Raccourcis Clavier](#interface-thèmes--raccourcis-clavier)
-10. [Architecture Technique & Dépendances](#architecture-technique--dépendances)
-11. [Installation & Lancement](#installation--lancement)
-12. [Déploiement Statique sur GitHub Pages](#déploiement-statique-sur-github-pages)
+4. [Outils de Primitives & Création Interactive](#outils-de-primitives--création-interactive)
+5. [Moteur de Rendu, Studio & Matériaux PBR](#moteur-de-rendu-studio--matériaux-pbr)
+6. [Outils de Mesure & Inspection Métrique](#outils-de-mesure--inspection-métrique)
+7. [Importation & Exportation (I/O)](#importation--exportation-io)
+8. [Éditeur de Scripts & Assistant IA Gemini](#éditeur-de-scripts--assistant-ia-gemini)
+9. [Performances, Optimisations & Protection Anti-Gel](#performances-optimisations--protection-anti-gel)
+10. [Interface, Thèmes & Raccourcis Clavier](#interface-thèmes--raccourcis-clavier)
+11. [Architecture Technique & Dépendances](#architecture-technique--dépendances)
+12. [Installation & Lancement](#installation--lancement)
+13. [Déploiement Statique sur GitHub Pages](#déploiement-statique-sur-github-pages)
 
 ---
 
 ## Vue d'Ensemble & Points Forts
 
-- **100% dans le navigateur** : Aucune installation lourde requise, propulsé par WebGL / Three.js et React 19.
+- **100% dans le navigateur** : Aucune installation lourde requise, propulsé par WebGL / Three.js (`0.185`) et React 19.
 - **Workflow hybride CAO & Artistique** : Passez instantanément d'un tracé 2D précis avec courbes de Bézier à une extrusion 3D, puis à la sculpture organique ou aux opérations booléennes solides.
 - **Pile de modificateurs non-destructifs** : Subdivision de surface Catmull-Clark, symétrie miroir, réseaux répétitifs (Array) et cages Lattice.
-- **Précision métrique et accrochage intelligent** : Système de magnétisme (Snapping) sur sommets, milieux, centres, intersections, angles et grille.
-- **Architecture full-stack moderne** : Client React 19 ultra-optimisé avec serveur Express Node.js pour les intégrations d'intelligence artificielle Gemini.
+- **Précision métrique et accrochage intelligent** : Système de magnétisme (*Snapping*) sur sommets, milieux, centres, intersections, angles et grille.
+- **Architecture full-stack moderne** : Client React 19 optimisé avec serveur Express Node.js pour les intégrations d'intelligence artificielle Gemini.
+
+---
+
+## Organisation de l'Interface
+
+- **Barre supérieure (`HeaderBar`)** : Menus `File`, `Edit`, `View`, indicateur d'état de sauvegarde (`All changes saved`), historique Annuler/Rétablir, duplication, suppression, contrôle de la grille/thème/paramètres et bouton **Export**.
+- **Étagère d'outils (`ToolShelf`)** : Accès direct aux 10 modes de création, bascules **Rendu**, **X-Ray**, **Mesure**, sélecteur **Preview / Code**, ajout rapide de primitives (`+`) et boutons d'import/export.
+- **Viewport 3D central (`Viewport3D`)** : Gizmo d'orientation interactif `X/Y/Z`, barre flottante de transformation (Translation, Rotation, Échelle, Sélection par boîte, Mesure), barre de navigation caméra (Verrouillage, Panoramique, Zoom `-/+`) et coordonnées spatiales en direct (`x / y / z`).
+- **Inspecteur & Outliner (`PropertyPanel` / `Outliner`)** : Compteurs topologiques en direct (`Face / Edge / Vertex`), sélection de sous-éléments, activation du **Système d'Aimantation (Snapping)**, onglets `Objects`, `Transform`, `Material` et `Modifiers`, ainsi qu'une arborescence filtrable des objets et lumières de la scène.
+- **Barre de statut (`StatusBar`)** : Aide contextuelle dynamique, mode actif, total des sommets (`VERTS`), triangles (`TRIS`) et compteur de performances (`FPS`).
 
 ---
 
@@ -357,12 +379,18 @@ Un workflow GitHub Actions est prêt à l'emploi dans `.github/workflows/deploy.
    `https://<votre-nom-utilisateur>.github.io/<nom-du-depot>/`
 
 ### 2. Déploiement manuel local (Optionnel)
-Si vous préférez générer vous-même les fichiers statiques sans GitHub Actions :
+Si vous préférez générer et publier vous-même les fichiers statiques sans GitHub Actions :
+```bash
+# Compiler le site statique (base /eya3D/) et déployer dist/ sur gh-pages
+npm run deploy
+```
+
+Ou étape par étape :
 ```bash
 # Compiler le site statique dans le dossier dist/
 npm run build:static
 
-# Déployer dist/ sur la branche gh-pages (avec npx gh-pages par exemple)
+# Déployer dist/ sur la branche gh-pages
 npx gh-pages -d dist
 ```
 
